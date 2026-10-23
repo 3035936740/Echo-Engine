@@ -1,0 +1,6 @@
+string(TIMESTAMP stamp "%Y%m%d-%H%M%S")
+string(RANDOM LENGTH 8 nonce)
+execute_process(COMMAND "${TEST_EXE}" "${SOURCE}/projects/echo_of_kino" "${BINARY}/project-test-${stamp}-${nonce}" "${RUNTIME}" RESULT_VARIABLE result TIMEOUT 45)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Project test failed: ${result}")
+endif()

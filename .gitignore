@@ -1,6 +1,49 @@
-/out/
-/.vs/
-/bin/
-/cmake-build-debug/
-/cmake-build-release/
+# Local IDE settings
 /.idea/
+/.vs/
+/.vscode/
+CMakeUserPresets.json
+
+# Build, deployment and validation output
+/out/
+/bin/
+/build/
+/build-*/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/CTestTestfile.cmake
+/DartConfiguration.tcl
+/Testing/
+/build.ninja
+/.ninja_deps
+/.ninja_log
+/compile_commands.json
+/Makefile
+/install_manifest.txt
+
+# GCC and native binary artifacts
+*.o
+*.obj
+*.a
+*.dll.a
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+
+# Editor backups and operating-system files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+__pycache__/
+*.py[cod]

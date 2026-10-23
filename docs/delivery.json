@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-03",
+  "project": "Echo Engine",
+  "version": "0.4.0",
+  "status": "Windows development preview",
+  "toolchain": {
+    "compiler": "GCC 13.1.0",
+    "cpp_standard": 20,
+    "build": "CMake / Ninja"
+  },
+  "tests": {
+    "release": {
+      "passed": 10,
+      "total": 10,
+      "seconds": 8.1
+    },
+    "debug": {
+      "passed": 10,
+      "total": 10,
+      "seconds": 9.64
+    },
+    "public_export_exit_code": 0,
+    "encrypted_export_exit_code": 0,
+    "public_smoke_exit_code": 0,
+    "encrypted_smoke_exit_code": 0
+  },
+  "performance": {
+    "cpu": "Intel Core i5-10400F",
+    "gpu": "NVIDIA GeForce GTX 1060 6GB",
+    "gl": "4.6.0 NVIDIA 560.94",
+    "world_state_bytes": 318808,
+    "bullet_capacity": 2048,
+    "cpu_mean_ms_per_tick": 0.0447988,
+    "gpu_mean_ms_per_frame": 16.4112,
+    "draw_calls": 10,
+    "note": "Local Release scenes only; hidden GPU validation includes simulation, snapshot, render, glFinish and swap waiting with requested vsync interval 1. Not a raw GPU cost or universal FPS promise."
+  },
+  "limits_document": "ENGINE_SCOPE.md",
+  "artifacts": {
+    "editor": {
+      "path": "bin/EchoEngine.exe",
+      "bytes": 4582582,
+      "sha256": "b6002d33d3f90948a4ebb8c0857720eb681c920f3d8a0bf9ee0bc3c9237c75d8"
+    },
+    "preview": {
+      "path": "bin/EchoOfKino.exe",
+      "bytes": 4582582,
+      "sha256": "b6002d33d3f90948a4ebb8c0857720eb681c920f3d8a0bf9ee0bc3c9237c75d8"
+    },
+    "public_game": {
+      "path": "bin/releases/v0.4-public/EchoOfKino.exe",
+      "bytes": 4582582,
+      "sha256": "b6002d33d3f90948a4ebb8c0857720eb681c920f3d8a0bf9ee0bc3c9237c75d8"
+    },
+    "encrypted_game": {
+      "path": "bin/releases/v0.4-encrypted/EchoOfKino.exe",
+      "bytes": 6878689,
+      "sha256": "edb5264e53ac3217125ebe45ce866ec487d7c15def8e66d2b5877884c5c1794e"
+    }
+  },
+  "events": {
+    "map_events": 32,
+    "common_events": 16,
+    "pages_per_event": 4,
+    "commands_per_page": 32,
+    "global_switches": 128,
+    "integer_variables": 64,
+    "instruction_budget_per_substep": 256,
+    "instructions_per_event": 16,
+    "runtime_in_world_snapshot": true,
+    "workflow_document": "EVENTS.md"
+  },
+  "transitions": {
+    "none": true,
+    "builtins": [
+      "fade",
+      "iris",
+      "diamond",
+      "curtain",
+      "diagonal",
+      "pixels"
+    ],
+    "custom": "GLSL 1.20 alpha-mask function",
+    "scopes": [
+      "project map default",
+      "project restart default",
+      "portal override"
+    ],
+    "progress_in_world_snapshot": true,
+    "preloaded_shaders": true,
+    "opaque_commit_gpu_verified": true,
+    "workflow_document": "TRANSITIONS.md"
+  },
+  "authoring": {
+    "document": "AUTHORING.md",
+    "plan": "BUILD_PLAN.md",
+    "named_switches": 128,
+    "named_variables": 64,
+    "debug_step_seconds": 0.016666666666666666,
+    "debug_edits_in_snapshot": true,
+    "recovery_interval_seconds": 60,
+    "recovery_generations": 3,
+    "recovery_file_max_bytes": 33554432,
+    "recovery_scope": "project/current map/local events/common events/database metadata; external assets excluded",
+    "recovery_excluded_from_exports": true
+  }
+}

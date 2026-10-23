@@ -1,5 +1,6 @@
 #include "core.hpp"
 
+/*
 [[maybe_unused]] DLL_EXPORT cv::Mat core::utils::clearColor(const std::filesystem::path& filename, const core::type::rgba& rgba){
     cv::Mat image = cv::imread(filename.string(), cv::IMREAD_UNCHANGED);
     cv::Mat input_bgra;
@@ -18,6 +19,7 @@
     }
     return input_bgra;
 }
+*/
 
 #ifdef _WIN32
 [[maybe_unused]] DLL_EXPORT void core::hidden_console(bool enable) {

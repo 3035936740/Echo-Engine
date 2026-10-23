@@ -1,0 +1,24 @@
+ECHO_ASSETS_1 24 23
+1 "assets/assetAster.png" "assetAster" "" "" 0 384 96 6336 0
+2 "assets/assetAster.rgba" "assetAster" "" "" 0 384 96 147464 0
+3 "assets/assetDemon.png" "assetDemon" "" "" 0 384 48 2171 0
+4 "assets/assetDemon.rgba" "assetDemon" "" "" 0 384 48 73736 0
+5 "assets/assetKino.png" "assetKino" "" "" 0 192 48 1306 0
+6 "assets/assetKino.rgba" "assetKino" "" "" 0 192 48 36872 0
+7 "assets/assetKinoSheet.png" "assetKinoSheet" "" "" 0 448 224 7856 0
+8 "assets/assetKinoSheet.rgba" "assetKinoSheet" "" "" 0 448 224 401416 0
+9 "assets/autotile16.png" "autotile16" "" "" 0 32 32 283 0
+10 "assets/tiles.png" "tiles" "" "" 0 32 32 411 0
+11 "audio/ambient.ogg" "ambient" "" "" 1 0 0 48389 8
+12 "audio/ambient.wav" "ambient" "" "" 1 0 0 1411244 8
+13 "audio/hit.wav" "hit" "" "" 1 0 0 35324 0.20000000000000001
+14 "audio/impact.wav" "impact" "" "" 1 0 0 35324 0.20000000000000001
+15 "audio/jump.wav" "jump" "" "" 1 0 0 31796 0.17999999999999999
+16 "scripts/jump.lua" "jump" "" "" 2 0 0 300 0
+17 "scripts/lab.lua" "lab" "" "" 2 0 0 90 0
+18 "scripts/rewind.lua" "rewind" "" "" 2 0 0 176 0
+19 "shaders/environment.frag" "environment" "" "" 3 0 0 4366 0
+20 "shaders/fluid.frag" "fluid" "" "" 3 0 0 2077 0
+21 "shaders/lighting.frag" "lighting" "" "" 3 0 0 2592 0
+22 "shaders/raymarch.frag" "raymarch" "" "" 3 0 0 1070 0
+23 "shaders/transition_custom.glsl" "transition_custom" "" "" 3 0 0 552 0
