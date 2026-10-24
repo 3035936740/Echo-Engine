@@ -13,6 +13,46 @@ std::wstring wide(const std::string& s) {
     MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), result.data(), n);
     return result;
 }
+namespace {
+constexpr UINT fitDialogMessage = WM_APP + 41;
+// The older dialogs were sized by hand; fit the client to its controls and cards (mirroring the
+// left / top margins) and centre the window over the editor the first time it is shown.
+void fitDialog(App& a, HWND h) {
+    RECT content{1 << 20, 1 << 20, 0, 0};
+    auto include = [&](RECT r) {
+        content.left = std::min(content.left, r.left);
+        content.top = std::min(content.top, r.top);
+        content.right = std::max(content.right, r.right);
+        content.bottom = std::max(content.bottom, r.bottom);
+    };
+    for (HWND child = GetWindow(h, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        RECT r{};
+        GetWindowRect(child, &r);
+        MapWindowPoints(nullptr, h, reinterpret_cast<POINT*>(&r), 2);
+        include(r);
+    }
+    for (const auto& card : a.cardRects(h))
+        include(card);
+    if (content.right <= 0 || content.bottom <= 0)
+        return;
+    RECT frame{0, 0, content.right + std::clamp(int(content.left), 8, 24),
+               content.bottom + std::clamp(int(content.top), 8, 24)};
+    AdjustWindowRectEx(&frame, DWORD(GetWindowLongPtrW(h, GWL_STYLE)), FALSE,
+                       DWORD(GetWindowLongPtrW(h, GWL_EXSTYLE)));
+    int width = frame.right - frame.left, height = frame.bottom - frame.top;
+    RECT owner{};
+    GetWindowRect(a.window, &owner);
+    MONITORINFO monitor{};
+    monitor.cbSize = sizeof(monitor);
+    GetMonitorInfoW(MonitorFromWindow(a.window, MONITOR_DEFAULTTONEAREST), &monitor);
+    const RECT& work = monitor.rcWork;
+    int x = owner.left + (owner.right - owner.left - width) / 2;
+    int y = owner.top + (owner.bottom - owner.top - height) / 2;
+    x = std::clamp(x, int(work.left), std::max(int(work.left), int(work.right) - width));
+    y = std::clamp(y, int(work.top), std::max(int(work.top), int(work.bottom) - height));
+    SetWindowPos(h, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+} // namespace
 LRESULT CALLBACK App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     auto a = reinterpret_cast<App*>(GetWindowLongPtrW(h, GWLP_USERDATA));
     if (m == WM_NCCREATE) {
@@ -24,6 +64,19 @@ LRESULT CALLBACK App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     try {
         if (m == WM_ERASEBKGND)
             return 1;
+        if (m == WM_SHOWWINDOW && w && h != a->window && h != a->side && !a->verifyMode && !a->smoke &&
+            !(GetWindowLongPtrW(h, GWL_STYLE) & WS_CHILD) && !GetPropW(h, L"EchoFitted")) {
+            // Shown from CreateWindow before its controls exist: fit once they are created.
+            SetPropW(h, L"EchoFitted", reinterpret_cast<HANDLE>(1));
+            a->applyTitleBarTheme(h);
+            PostMessageW(h, fitDialogMessage, 0, 0);
+        }
+        if (m == fitDialogMessage) {
+            fitDialog(*a, h);
+            return 0;
+        }
+        if (m == WM_NCDESTROY)
+            RemovePropW(h, L"EchoFitted");
         if ((m == WM_PAINT || m == WM_PRINTCLIENT) && h == a->dialogWindow) {
             a->paintDialogue(h, m == WM_PRINTCLIENT ? reinterpret_cast<HDC>(w) : nullptr);
             return 0;
@@ -50,7 +103,9 @@ LRESULT CALLBACK App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return a->colorControl(reinterpret_cast<HDC>(w), reinterpret_cast<HWND>(l));
         if (m == WM_GETMINMAXINFO && h == a->window) {
             auto info = reinterpret_cast<MINMAXINFO*>(l);
-            info->ptMinTrackSize = a->resources.published ? POINT{656, 399} : POINT{1200, 720};
+            info->ptMinTrackSize = a->resources.published ? POINT{656, 399}
+                                                         : POINT{std::max(1200, ui::dp(1100, a->uiScale)),
+                                                                 std::max(720, ui::dp(600, a->uiScale))};
             return 0;
         }
         if (m == WM_CLOSE && h == a->side) {
@@ -185,41 +240,11 @@ LRESULT CALLBACK App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             a->audio.pause(!a->focused);
             return 0;
         }
-        if (h == a->window && !a->resources.published) {
-            int x = GET_X_LPARAM(l), y = GET_Y_LPARAM(l);
-            if (m == WM_LBUTTONDOWN && y >= 72 && x >= a->workspaceWidth && x < a->workspaceWidth + 8) {
-                a->finishBrush();
-                a->splittingWorkspace = true;
-                SetCapture(h);
-                return 0;
-            }
-            if (m == WM_MOUSEMOVE && a->splittingWorkspace) {
-                a->workspaceWidth = std::clamp(x, 256, 380);
-                a->layout();
-                return 0;
-            }
-            if (m == WM_LBUTTONUP && a->splittingWorkspace) {
-                a->splittingWorkspace = false;
-                ReleaseCapture();
-                a->saveWorkspaceSettings();
-                return 0;
-            }
-            if ((m == WM_CAPTURECHANGED || m == WM_CANCELMODE) && a->splittingWorkspace) {
-                a->splittingWorkspace = false;
-                a->saveWorkspaceSettings();
-            }
-            if (m == WM_SETCURSOR && LOWORD(l) == HTCLIENT) {
-                POINT p{};
-                GetCursorPos(&p);
-                ScreenToClient(h, &p);
-                if (p.y >= 72 && p.x >= a->workspaceWidth && p.x < a->workspaceWidth + 8) {
-                    SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
-                    return TRUE;
-                }
-            }
+        if (h == a->window && !a->resources.published && a->initialized) {
+            LRESULT handled{};
+            if (a->workspaceMouse(m, w, l, handled))
+                return handled;
         }
-        if (m == WM_NOTIFY)
-            return a->workspaceNotify(l);
         if (m == WM_COMMAND) {
             a->command(LOWORD(w), HIWORD(w));
             return 0;
@@ -305,6 +330,10 @@ LRESULT CALLBACK App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 return 0;
             }
             if (m == WM_MOUSEWHEEL) {
+                // The canvas keeps keyboard focus, so wheel input over the dock arrives here.
+                POINT cursor{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+                if (WindowFromPoint(cursor) != h && a->workspaceWheel(cursor, GET_WHEEL_DELTA_WPARAM(w)))
+                    return 0;
                 a->camera.logicalX = std::clamp(a->camera.logicalX - GET_WHEEL_DELTA_WPARAM(w) * 2.0f,
                                                 0.0f, mapWidth * tileSize - 1280);
                 a->camera.pixelGridX = int(std::round(a->camera.logicalX * pixelsPerUnit));
@@ -318,13 +347,63 @@ LRESULT CALLBACK App::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     return DefWindowProcW(h, m, w, l);
 }
+// The older settings windows are plain windows rather than dialog-manager dialogs, so keyboard
+// navigation is provided here: Tab / Shift+Tab between tab stops, Esc closes the window.
+bool App::dialogKey(const MSG& msg) {
+    HWND focus = GetFocus();
+    HWND root = focus ? GetAncestor(focus, GA_ROOT) : nullptr;
+    if (msg.message != WM_KEYDOWN || !root || root == window || root == side ||
+        GetAncestor(root, GA_ROOTOWNER) != window)
+        return false;
+    wchar_t type[32]{};
+    GetClassNameW(focus, type, 32);
+    std::wstring_view kind = type;
+    if (msg.wParam == VK_TAB && !(GetKeyState(VK_CONTROL) & 0x8000)) {
+        // Multi-line fields (dialogue text, Lua sources) keep Tab for indentation.
+        if (kind == L"Edit" && (GetWindowLongPtrW(focus, GWL_STYLE) & ES_MULTILINE))
+            return false;
+        HWND current = focus;
+        while (GetParent(current) && GetParent(current) != root)
+            current = GetParent(current);
+        HWND next = GetNextDlgTabItem(root, current, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+        if (next && next != current) {
+            SetFocus(next);
+            GetClassNameW(next, type, 32);
+            if (std::wstring_view(type) == L"Edit")
+                SendMessageW(next, EM_SETSEL, 0, -1);
+            SetPropW(next, L"EchoKeyFocus", reinterpret_cast<HANDLE>(1));
+            InvalidateRect(next, nullptr, FALSE);
+        }
+        return true;
+    }
+    if (msg.wParam == VK_ESCAPE) {
+        if (kind == L"ComboBox" && SendMessageW(focus, CB_GETDROPPEDSTATE, 0, 0))
+            return false; // Esc first closes an open drop-down
+        SendMessageW(root, WM_CLOSE, 0, 0);
+        return true;
+    }
+    return false;
+}
 HWND App::control(const wchar_t* type, const wchar_t* text, int id, int x, int y, int w, int h,
                   DWORD style, HWND parent) {
-    HWND result =
-        CreateWindowW(type, text, WS_CHILD | WS_VISIBLE | style, x, y, w, h, parent ? parent : window,
-                      reinterpret_cast<HMENU>(std::intptr_t(id)), instance, nullptr);
+    std::wstring_view kind = type;
+    // Lists draw their own rows (tab-stop tables keep native drawing); single-line fields scroll.
+    if (kind == L"LISTBOX" && !(style & LBS_USETABSTOPS))
+        style |= LBS_OWNERDRAWFIXED | LBS_HASSTRINGS;
+    if (kind == L"EDIT" && !(style & ES_MULTILINE))
+        style |= ES_AUTOHSCROLL;
+    // An EDIT with WS_BORDER paints its own square border inside the client area. A client edge
+    // keeps the frame (and any scroll bar) in the non-client area, where fieldProc draws it.
+    DWORD extended = 0;
+    if (kind == L"EDIT" && (style & WS_BORDER)) {
+        style &= ~WS_BORDER;
+        extended = WS_EX_CLIENTEDGE;
+    }
+    HWND result = CreateWindowExW(extended, type, text, WS_CHILD | WS_VISIBLE | style, x, y, w, h,
+                                  parent ? parent : window, reinterpret_cast<HMENU>(std::intptr_t(id)),
+                                  instance, nullptr);
     if (!result)
-        throw std::runtime_error("Editor control creation failed");
+        throw std::runtime_error("编辑器控件创建失败");
     SendMessageW(result, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     themeControl(result, id, type);
     controls[id] = result;
@@ -350,7 +429,7 @@ float App::number(int id) {
     GetWindowTextW(controls.at(id), text, 64);
     float n = std::stof(text);
     if (!std::isfinite(n))
-        throw std::runtime_error("Finite numbers required");
+        throw std::runtime_error("请输入有效的数字");
     return n;
 }
 void App::setNumber(int id, float n) {
@@ -383,55 +462,11 @@ void App::layout() {
         MoveWindow(canvas, 0, 0, std::max(320L, client.right), std::max(180L, client.bottom), TRUE);
         MoveWindow(status, 12, client.bottom - 24, client.right - 24, 20, TRUE);
     } else {
-        canvasTop = 102;
-        chromeY = 72;
-        int x = 6;
-        for (int id = WorkspaceFile; id <= WorkspaceHelp; ++id) {
-            MoveWindow(controls[id], x, 2, 62, 26, TRUE);
-            x += 64;
-        }
-        x = 8;
-        for (auto [id, width] : std::vector<std::pair<int, int>>{{New, 36},
-                                                                 {Open, 36},
-                                                                 {Save, 36},
-                                                                 {Undo, 34},
-                                                                 {Redo, 34},
-                                                                 {1, 60},
-                                                                 {17, 60},
-                                                                 {WorkspaceObjects, 60},
-                                                                 {WorkspaceBarrage, 60},
-                                                                 {WorkspacePencil, 44},
-                                                                 {WorkspaceRectangle, 44},
-                                                                 {WorkspaceBucket, 44},
-                                                                 {WorkspaceSelection, 44},
-                                                                 {WorkspacePick, 44},
-                                                                 {WorkspaceInspector, 86},
-                                                                 {Edit, 62},
-                                                                 {Play, 92}}) {
-            MoveWindow(controls[id], x, 34, width, 30, TRUE);
-            x += width +
-                 ((id == Save || id == Redo || id == WorkspaceBarrage || id == WorkspacePick) ? 12 : 4);
-        }
-        MoveWindow(controls[ThemeMode], client.right - 140, 34, 132, 28, TRUE);
-        MoveWindow(workspace, 0, 72, workspaceWidth, std::max(300L, client.bottom - 98), TRUE);
-        MoveWindow(controls[ImportTiles], workspaceWidth - 62, 6, 52, 26, TRUE);
-        int cell = 60, left = (workspaceWidth - 4 * cell) / 2;
-        MoveWindow(controls[Layer], 10, 36, workspaceWidth - 20, 240, TRUE);
-        for (int i = 0; i < 16; ++i)
-            MoveWindow(controls[WorkspaceTileFirst + i], left + i % 4 * cell, 76 + i / 4 * cell, cell,
-                       cell, TRUE);
-        for (int i = 0; i < 4; ++i)
-            MoveWindow(controls[WorkspaceTerrain + i], left + i * cell, 320, cell, 28, TRUE);
-        MoveWindow(workspaceItems, 10, 76, workspaceWidth - 20, 234, TRUE);
-        MoveWindow(controls[WorkspaceItemEdit], 10, 320, workspaceWidth - 20, 28, TRUE);
-        MoveWindow(workspaceTip, 10, 352, workspaceWidth - 20, 28, TRUE);
-        MoveWindow(mapTree, 6, 412, workspaceWidth - 12, std::max(80L, client.bottom - 72 - 26 - 420),
-                   TRUE);
-        MoveWindow(controls[MapsEditor], workspaceWidth - 62, 384, 52, 25, TRUE);
-        MoveWindow(canvas, workspaceWidth + 8, canvasTop,
-                   std::max(320, int(client.right) - workspaceWidth - 16),
-                   std::max(180, int(client.bottom) - canvasTop - 30), TRUE);
-        MoveWindow(status, 10, client.bottom - 24, client.right - 20, 22, TRUE);
+        chromeLayout = workspaceLayout(client.right, client.bottom, workspaceWidth, uiScale, inspectorOpen);
+        const auto& view = chromeLayout.canvas;
+        chromeY = chromeLayout.dock.y;
+        canvasTop = view.y;
+        MoveWindow(canvas, view.x, view.y, std::max(320, view.w), std::max(180, view.h), TRUE);
         RECT inspector{};
         GetClientRect(side, &inspector);
         SCROLLINFO info{sizeof(info),
@@ -447,9 +482,8 @@ void App::layout() {
     RECT c{};
     GetClientRect(canvas, &c);
     renderer.resize(c.right, c.bottom);
+    refreshWorkspace();
     InvalidateRect(window, nullptr, FALSE);
-    if (workspace)
-        InvalidateRect(workspace, nullptr, FALSE);
 }
 void App::ui() {
     INITCOMMONCONTROLSEX common{sizeof(common), ICC_STANDARD_CLASSES | ICC_TREEVIEW_CLASSES};
@@ -470,58 +504,36 @@ void App::ui() {
     wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(101));
     wc.hbrBackground = windowBrush;
     RegisterClassW(&wc);
+    if (!resources.published) {
+        uiScale = ui::systemScale();
+        uiFonts.create(uiScale);
+        workspaceWidth = ui::dp(272, uiScale);
+    }
+    RECT work{0, 0, 1440, 900};
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
     RECT gameSize{0, 0, 1280, 720};
     AdjustWindowRect(&gameSize, WS_OVERLAPPEDWINDOW, FALSE);
-    int initialWidth = resources.published ? gameSize.right - gameSize.left : 1440,
-        initialHeight = resources.published ? gameSize.bottom - gameSize.top : 900;
-    window = CreateWindowW(wc.lpszClassName, L"Echo Engine", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, 24,
-                           24, initialWidth, initialHeight, nullptr, nullptr, instance, this);
+    int initialWidth = resources.published ? gameSize.right - gameSize.left
+                                           : std::min(ui::dp(1440, uiScale), int(work.right - work.left) - 48),
+        initialHeight = resources.published ? gameSize.bottom - gameSize.top
+                                            : std::min(ui::dp(900, uiScale), int(work.bottom - work.top) - 48);
+    // The editor opens centred in the work area; published games keep their fixed corner origin.
+    int initialX = resources.published ? 24 : int(work.left) + std::max(0, int(work.right - work.left) - initialWidth) / 2;
+    int initialY = resources.published ? 24 : int(work.top) + std::max(0, int(work.bottom - work.top) - initialHeight) / 2;
+    window = CreateWindowW(wc.lpszClassName, L"Echo Engine", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, initialX,
+                           initialY, initialWidth, initialHeight, nullptr, nullptr, instance, this);
+    applyTitleBarTheme(window);
     canvas = CreateWindowW(wc.lpszClassName, L"", WS_CHILD | WS_VISIBLE, 20, 122, 1280, 720, window,
                            nullptr, instance, this);
     side = CreateWindowW(wc.lpszClassName, L"场景设置 · 环境 / 回溯 / 平台 / 灯光",
                          WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME, 180, 110, 304, 820,
                          window, nullptr, instance, this);
-    status = control(L"STATIC",
-                     resources.published ? L"A / D 跑  ·  空格跳  ·  R 快退  ·  T 回溯"
-                                         : L"就绪  ·  拖动绘制关卡，F5 即时试玩",
-                     999, 20, 950, 1280, 24);
-    SendMessageW(status, WM_SETFONT, reinterpret_cast<WPARAM>(smallFont), TRUE);
-    if (!resources.published) {
-        int x = 236;
-        for (auto [id, text, width] : std::vector<std::tuple<int, const wchar_t*, int>>{
-                 {Open, L"打开", 64},
-                 {New, L"新建", 64},
-                 {Save, L"保存", 64},
-                 {Play, L"▶ 试玩 F5", 106},
-                 {Edit, L"编辑 F2", 88},
-                 {Undo, L"↶", 38},
-                 {Redo, L"↷", 38},
-                 {ExportPublic, L"公开导出", 92},
-                 {ExportEncrypted, L"加密导出", 92},
-                 {Reload, L"重载 F6", 88},
-                 {Stress, L"弹幕压测", 92},
-                 {DialogEditor, L"对话与头像", 108},
-                 {AudioEditor, L"BGM / SE", 100},
-                 {MapsEditor, L"地图与卷轴", 108},
-                 {LayerEditor, L"图层图片", 96},
-                 {EventEditor, L"地图 / 全局事件", 140},
-                 {TilePaletteEditor, L"图块调色板", 112},
-                 {TransitionEditor, L"切图动画", 100},
-                 {DatabaseEditor, L"游戏数据库", 108},
-                 {MapToolsEditor, L"地图工具", 100},
-                 {DebuggerEditor, L"试玩调试", 100},
-                 {ProjectHealthEditor, L"工程检查与恢复", 140},
-                 {ObjectsEditor, L"对象与模板", 108},
-                 {AssetsEditor, L"资源管理", 100},
-                 {AnimationsEditor, L"精灵与动画", 108},
-                 {BarrageEditor, L"弹幕与波次", 108},
-                 {FocusEditor, L"判定 / 低速 / 采样", 152},
-                 {FrameRateEditor, L"帧率与同步", 108},
-                 {CollisionEditor, L"碰撞分类", 100}}) {
-            control(L"BUTTON", text, id, x, 18, width, 30, WS_TABSTOP);
-            ShowWindow(controls[id], SW_HIDE);
-            x += width + 8;
-        }
+    if (resources.published) {
+        status = control(L"STATIC", L"A / D 跑  ·  空格跳  ·  R 快退  ·  T 回溯", 999, 20, 950, 1280, 24);
+        SendMessageW(status, WM_SETFONT, reinterpret_cast<WPARAM>(smallFont), TRUE);
+    } else {
+        // The editor chrome (menus, toolbar, dock, status bar) is drawn by echo::ui.
+        statusText = L"就绪   |   拖动绘制关卡，F5 即时试玩";
         auto preset = [&](int id, int, const std::vector<std::wstring>& values, int chosen) {
             HWND h = control(L"COMBOBOX", L"", id, 18, id == JumpPreset ? 73 : 113, 234, 240,
                              CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP, side);
@@ -530,12 +542,6 @@ void App::ui() {
             SendMessageW(h, CB_SETCURSEL, chosen, 0);
             SendMessageW(h, CB_SETITEMHEIGHT, -1, 25);
         };
-        HWND theme = control(L"COMBOBOX", L"", ThemeMode, 1300, 18, 170, 240,
-                             CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP);
-        SendMessageW(theme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"浅色 · 默认"));
-        SendMessageW(theme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"深色 · 石板灰"));
-        SendMessageW(theme, CB_SETCURSEL, 0, 0);
-        SendMessageW(theme, CB_SETITEMHEIGHT, -1, 25);
         preset(JumpPreset, 720,
                {L"手感：项目 / 自定义", L"手感：基础平台跳跃", L"手感：弹性跑跳", L"手感：紧凑动作",
                 L"手感：宽容探索"},
@@ -624,14 +630,12 @@ void App::ui() {
     renderer.environment = editor.level.background;
     if (!resources.published)
         SendMessageW(controls[Environment], CB_SETCURSEL, editor.level.background, 0);
-    if (!resources.published) {
-        initWorkspace();
-        loadWorkspaceSettings();
-    }
-    initialized = true;
-    layout();
     if (!resources.published)
-        refreshWorkspace(true);
+        initWorkspace();
+    initialized = true;
+    if (!resources.published)
+        loadWorkspaceSettings();
+    layout();
     SetWindowTextW(
         window,
         (resources.published ? wide(config.title) : L"Echo Engine — " + wide(config.title)).c_str());

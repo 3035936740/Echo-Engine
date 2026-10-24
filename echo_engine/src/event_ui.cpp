@@ -222,7 +222,7 @@ void App::showEventEditor(bool fromCanvas) {
     edit(EventY, 948, 349, 206, L"0");
     label(L"说话者", 728, 389, 200, EventSpeakerLabel);
     edit(EventSpeaker, 728, 416, 200, L"NPC");
-    label(L"头像（项目相对路径，可留空）", 946, 389, 208, EventPortraitLabel);
+    label(L"头像路径（可留空）", 946, 389, 208, EventPortraitLabel);
     edit(EventPortrait, 946, 416, 208);
     button(EventImportPortrait, L"导入头像", 946, 453, 208);
     button(EventChoiceOpen, L"编辑选项与条件…", 728, 453, 202);
@@ -287,7 +287,7 @@ void App::eventReadPage() {
     p.variableId = selection(EventVariableCondition) - 1;
     float threshold = number(EventVariableMinimum);
     if (std::abs(threshold) > 1000000)
-        throw std::runtime_error("Variable threshold must be within +/-1000000");
+        throw std::runtime_error("变量阈值需在 ±1000000 之间");
     p.variableMinimum = int(threshold);
     p.selfSwitch = selection(EventSelfCondition) - 1;
     p.selfValue = SendMessageW(controls[EventSelfConditionValue], BM_GETCHECK, 0, 0) != 0;
@@ -296,7 +296,7 @@ void App::eventReadPage() {
     p.scriptConditionEnabled = SendMessageW(controls[EventPageScriptEnabled], BM_GETCHECK, 0, 0) != 0;
     auto source = readUtf8(controls[EventPageScriptSource]);
     if (source.size() >= 1024)
-        throw std::runtime_error("Page condition must fit 1023 UTF-8 bytes");
+        throw std::runtime_error("页条件不能超过 1023 字节（UTF-8）");
     p.scriptCondition.set(source);
 }
 void App::eventPageForm(bool resetView) {
@@ -620,7 +620,7 @@ EventCommand App::eventReadCommand() {
     if (c.op == EventOp::EmitterControl || c.op == EventOp::ClearBulletGroup) {
         auto row = selection(EventTarget);
         if (row < 0)
-            throw std::runtime_error("No emitter / group available");
+            throw std::runtime_error("没有可用的发射器或分组");
         auto key = std::uint64_t(SendMessageW(controls[EventTarget], CB_GETITEMDATA, row, 0));
         if (c.op == EventOp::EmitterControl)
             c.reference = key;
@@ -637,7 +637,7 @@ EventCommand App::eventReadCommand() {
     if (c.op == EventOp::Loop) {
         if (!std::isfinite(c.value) || c.value < 0 || c.value > 1000000 ||
             std::floor(c.value) != c.value)
-            throw std::runtime_error("Loop count must be an integer 0..1000000");
+            throw std::runtime_error("循环次数需为 0–1000000 的整数");
         c.a = int(c.value);
     }
     c.x = number(EventX);
@@ -645,7 +645,7 @@ EventCommand App::eventReadCommand() {
     if (eventProgression(c.op)) {
         int row = selection(EventTarget);
         if (row < 0)
-            throw std::runtime_error("Choose an item/quest from the database first");
+            throw std::runtime_error("请先在数据库中选择物品或任务");
         c.reference = std::uint64_t(SendMessageW(controls[EventTarget], CB_GETITEMDATA, row, 0));
         c.c = 0;
         if (c.op == EventOp::ChangeItem || c.op == EventOp::QuestProgress) {
@@ -659,7 +659,7 @@ EventCommand App::eventReadCommand() {
     auto text = readUtf8(controls[EventContent]), speaker = readUtf8(controls[EventSpeaker]),
          portrait = readUtf8(controls[EventPortrait]);
     if (text.size() >= 1024 || speaker.size() >= 64 || portrait.size() >= 256)
-        throw std::runtime_error("Event text / speaker / portrait is too long");
+        throw std::runtime_error("事件文字、说话人或头像路径过长");
     c.text.set(text);
     c.speaker.set(speaker);
     c.portrait.set(portrait);
@@ -713,7 +713,7 @@ void App::eventCommand(int id, int notification) {
         auto& map = eventCommon ? editor.common : editor.events;
         int limit = eventCommon ? 16 : 32;
         if (map.events.size() >= std::size_t(limit))
-            throw std::runtime_error("Event capacity reached");
+            throw std::runtime_error("事件数量已达上限");
         int newId = 1;
         while (findEvent(map, newId))
             ++newId;
@@ -748,7 +748,7 @@ void App::eventCommand(int id, int notification) {
             eventDraftCommit(eraseEventCommands(commands, normalized, eventCommon), normalized.front());
         eventClipboard = std::move(copied);
         EnableWindow(controls[EventPaste], !eventClipboard.empty());
-        message = "Copied " + std::to_string(eventClipboard.size()) + " commands (same project)";
+        message = "已复制 " + std::to_string(eventClipboard.size()) + " 条指令（仅限本工程）";
         return;
     }
     if (id == EventPaste) {
@@ -818,12 +818,12 @@ void App::eventCommand(int id, int notification) {
         eventReadPage();
         if (id == EventPageDelete) {
             if (eventDraft.pages.size() == 1)
-                throw std::runtime_error("Keep at least one event page");
+                throw std::runtime_error("至少保留一页事件");
             eventDraft.pages.erase(eventDraft.pages.begin() + eventPage);
             eventPage = std::min(eventPage, int(eventDraft.pages.size()) - 1);
         } else {
             if (eventDraft.pages.size() >= 4)
-                throw std::runtime_error("Event page capacity is 4");
+                throw std::runtime_error("每个事件最多 4 页");
             EventPage p = id == EventPageCopy ? eventDraft.pages[eventPage] : EventPage{};
             eventDraft.pages.push_back(std::move(p));
             eventPage = int(eventDraft.pages.size()) - 1;
@@ -885,10 +885,10 @@ void App::eventCommand(int id, int notification) {
         if (id == EventInsert) {
             auto c = eventReadCommand();
             if (terminator(c.op))
-                throw std::runtime_error("Insert a block heading; its end is created automatically");
+                throw std::runtime_error("请插入块的开头，结尾会自动生成");
             int added = condition(c.op) ? 3 : c.op == EventOp::Loop ? 2 : 1;
             if (commands.size() + added > 32)
-                throw std::runtime_error("Command capacity is 32 per page");
+                throw std::runtime_error("每页最多 32 条指令");
             keep = selected < 0 ? int(commands.size())
                    : eventCollapsed[selected] && heading(commands[selected].op)
                        ? eventBlockEnd(commands, selected)
@@ -909,12 +909,12 @@ void App::eventCommand(int id, int notification) {
             return;
         else if (id == EventUpdate) {
             if (eventSelectedCommands().size() != 1)
-                throw std::runtime_error("Select one command to edit parameters");
+                throw std::runtime_error("请只选中一条指令来编辑参数");
             auto next = eventReadCommand();
             if (condition(next.op) != condition(commands[selected].op) ||
                 (next.op == EventOp::Loop) != (commands[selected].op == EventOp::Loop) ||
                 terminator(next.op) || terminator(commands[selected].op))
-                throw std::runtime_error("Use Insert/Delete to change a block type");
+                throw std::runtime_error("块类型不能直接修改，请删除后重新插入");
             commands[selected] = next;
         } else if (id == EventRemove) {
             auto selectedCommands = eventSelectedCommands();
@@ -938,7 +938,7 @@ void App::eventCommand(int id, int notification) {
         eventReadPage();
         auto name = readUtf8(controls[EventName]);
         if (name.size() >= 64)
-            throw std::runtime_error("Event name must fit 63 UTF-8 bytes");
+            throw std::runtime_error("事件名称不能超过 63 字节（UTF-8）");
         eventDraft.name.set(name);
         EventMap validation;
         validation.events.push_back(eventDraft);
@@ -965,7 +965,7 @@ void App::eventCommand(int id, int notification) {
         editor.dirty = true;
         eventRefreshList();
         refreshChrome();
-        message = "Event commands applied";
+        message = "事件指令已应用";
         return;
     }
 }

@@ -67,7 +67,7 @@ void App::inputCommand(int id) {
         validateKeys(candidate); // Validate all bindings before committing any field.
         config.keys = candidate;
         editor.dirty = true;
-        message = "Keyboard bindings applied; save the project to persist";
+        message = "键位已应用，保存工程后保留";
         refreshChrome();
     }
 }

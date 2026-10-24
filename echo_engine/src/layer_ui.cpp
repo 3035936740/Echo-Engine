@@ -61,7 +61,7 @@ void App::layerCommand(int id) {
     if (id == LayerImageClear)
         path.clear();
     if (path.size() >= 256)
-        throw std::runtime_error("Layer image path is too long");
+        throw std::runtime_error("图层图片路径过长");
     auto previous = editor.level.layers[layerEditorIndex];
     editor.begin();
     auto& layer = editor.level.layers[layerEditorIndex];
@@ -80,7 +80,7 @@ void App::layerCommand(int id) {
         save();
         throw;
     }
-    message = "Layer image and parallax saved";
+    message = "图层图片与视差已保存";
     refreshChrome();
 }
 } // namespace echo

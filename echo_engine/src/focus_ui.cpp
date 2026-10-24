@@ -9,7 +9,7 @@ namespace {
 std::wstring fieldText(HWND h) {
     int n = GetWindowTextLengthW(h);
     if (n > 4096)
-        throw std::runtime_error("Text exceeds 4096 characters");
+        throw std::runtime_error("文字超过 4096 个字符");
     std::wstring s(n + 1, 0);
     GetWindowTextW(h, s.data(), n + 1);
     s.resize(n);
@@ -20,7 +20,7 @@ void check(App& a, int id, bool v) { SendMessageW(a.controls[id], BM_SETCHECK, v
 int integer(App& a, int id, int lo, int hi) {
     float v = a.number(id);
     if (v < lo || v > hi || std::floor(v) != v)
-        throw std::runtime_error("Integer outside field range");
+        throw std::runtime_error("整数超出该字段的范围");
     return int(v);
 }
 LRESULT CALLBACK previewProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
@@ -301,7 +301,7 @@ HurtRegion App::readHurtRegion() {
     while (!points.eof()) {
         Vec2 v;
         if (!(points >> v.x >> v.y) || !r.vertices.push(v))
-            throw std::runtime_error("Vertex list: x y pairs; maximum 16");
+            throw std::runtime_error("顶点列表：成对的 x y，最多 16 个点");
         points >> std::ws;
     }
     HurtConfig test;
@@ -324,7 +324,7 @@ void App::focusCommand(int id, int notification) {
     }
     if (id == HurtRegionNew || id == HurtRegionCopy) {
         if (hurtDraft.count == 8)
-            throw std::runtime_error("Maximum 8 hurt regions");
+            throw std::runtime_error("最多 8 个受击区域");
         auto r = id == HurtRegionCopy ? readHurtRegion() : HurtRegion{};
         hurtRegionIndex = int(hurtDraft.count);
         hurtDraft.regions[hurtDraft.count++] = r;
@@ -333,7 +333,7 @@ void App::focusCommand(int id, int notification) {
     }
     if (id == HurtRegionDelete) {
         if (hurtDraft.count == 1)
-            throw std::runtime_error("Keep one region; disable it to receive no matching damage");
+            throw std::runtime_error("至少保留一个判定区域；如需不受伤，可将其停用");
         for (std::uint32_t i = std::uint32_t(hurtRegionIndex); i + 1 < hurtDraft.count; ++i)
             hurtDraft.regions[i] = hurtDraft.regions[i + 1];
         hurtDraft.regions[--hurtDraft.count] = {};
@@ -344,13 +344,13 @@ void App::focusCommand(int id, int notification) {
     if (id == HurtRegionApply) {
         hurtDraft.regions[hurtRegionIndex] = readHurtRegion();
         focusForm(false);
-        message = "Hurt region draft updated; apply all to use";
+        message = "判定区域草稿已更新，点击「应用全部配置」后生效";
         return;
     }
     if (id == HurtPresetApply) {
         int preset = selection(HurtPreset);
         if (preset < 0)
-            throw std::runtime_error("Select a hurt preset");
+            throw std::runtime_error("请选择一个受击预设");
         hurtDraft = {};
         focusDraft = {};
         focusDraft.enabled = preset != 1;
@@ -411,7 +411,7 @@ void App::focusCommand(int id, int notification) {
         validateFocus(f);
         validateHurt(h);
         if (f.when == FocusWhen::Switch && f.gateSwitch < 0)
-            throw std::runtime_error("Select a switch for switch-only focus");
+            throw std::runtime_error("请为「仅开关启用」选择一个开关");
         renderer.setSampling(selection(RenderTexture), selection(RenderUpscale), selection(RenderAA),
                              number(RenderSharpness));
         hurtDraft = initial_->hurt = config.hurt = h;
@@ -423,7 +423,7 @@ void App::focusCommand(int id, int notification) {
         simulation->reset(*initial_, HistoryClearReason::FocusSettings);
         editor.dirty = true;
         focusForm();
-        message = "Hurt / focus / rendering applied; old play history restarted";
+        message = "判定 / 低速 / 采样设置已应用，试玩历史已重置";
         refreshChrome();
         return;
     }
@@ -517,15 +517,15 @@ void App::frameRateCommand(int id) {
     if (id == FrameRateApply) {
         int selected = selection(FrameRatePreset);
         if (selected < 0 || selected > 6)
-            throw std::runtime_error("Select frame rate mode");
+            throw std::runtime_error("请选择帧率模式");
         int fps = selected == 6 ? integer(*this, FrameRateCustom, 1, 1000) : rates[selected];
         bool vsync = checked(*this, FrameVsync);
         bool available = renderer.setVsync(vsync);
         config.frameLimit = fps;
         config.vsync = vsync;
         editor.dirty = true;
-        message = available ? "Render frame limit applied"
-                            : "Software frame limit applied; driver VSync control unavailable";
+        message = available ? "帧率限制已应用"
+                            : "已使用软件帧率限制（驱动不支持垂直同步控制）";
         refreshChrome();
         return;
     }

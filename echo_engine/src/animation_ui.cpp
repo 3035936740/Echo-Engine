@@ -23,13 +23,13 @@ float real(HWND h) {
     std::size_t used;
     float value = std::stof(s, &used);
     if (!std::isfinite(value) || s.find_first_not_of(" \t\r\n", used) != std::string::npos)
-        throw std::runtime_error("Enter a finite number");
+        throw std::runtime_error("请输入有效的数字");
     return value;
 }
 int integer(HWND h, int lo, int hi) {
     auto value = real(h);
     if (std::floor(value) != value || value < lo || value > hi)
-        throw std::runtime_error("Integer is outside the displayed range");
+        throw std::runtime_error("整数超出显示的范围");
     return int(value);
 }
 template <class T> struct Com {
@@ -47,7 +47,7 @@ template <class T> struct Com {
 };
 void checked(HRESULT hr) {
     if (FAILED(hr))
-        throw std::runtime_error("Animation image decode failed");
+        throw std::runtime_error("动画图片解码失败");
 }
 LRESULT CALLBACK previewProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     auto* app = reinterpret_cast<App*>(GetWindowLongPtrW(h, GWLP_USERDATA));
@@ -213,13 +213,13 @@ void App::animationImage() {
         std::vector<unsigned char> pixels;
         if (path.ends_with(".rgba")) {
             if (bytes.size() < 8)
-                throw std::runtime_error("Invalid RGBA sheet");
+                throw std::runtime_error("无效的 RGBA 图集");
             std::memcpy(&width, bytes.data(), 4);
             std::memcpy(&height, bytes.data() + 4, 4);
             if (width < 1 || height < 1 || width > 8192 || height > 8192 ||
                 std::uint64_t(width) * height * 4 > 64ull * 1024 * 1024 ||
                 bytes.size() != 8 + std::uint64_t(width) * height * 4)
-                throw std::runtime_error("Invalid RGBA sheet dimensions");
+                throw std::runtime_error("RGBA 图集尺寸无效");
             pixels.assign(bytes.begin() + 8, bytes.end());
             for (std::size_t i = 0; i < pixels.size(); i += 4)
                 std::swap(pixels[i], pixels[i + 2]);
@@ -239,7 +239,7 @@ void App::animationImage() {
             unsigned w{}, h{};
             checked(frame->GetSize(&w, &h));
             if (!w || !h || w > 8192 || h > 8192 || std::uint64_t(w) * h * 4 > 64ull * 1024 * 1024)
-                throw std::runtime_error("Animation sheet exceeds 64 MiB decode budget");
+                throw std::runtime_error("动画图集解码后超过 64 MiB 上限");
             width = int(w);
             height = int(h);
             pixels.resize(std::size_t(w) * h * 4);
@@ -259,7 +259,7 @@ void App::animationImage() {
         void* dest{};
         next = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &dest, nullptr, 0);
         if (!next)
-            throw std::runtime_error("Animation preview allocation failed");
+            throw std::runtime_error("动画预览内存分配失败");
         std::memcpy(dest, pixels.data(), pixels.size());
     }
     if (animationBitmap)
@@ -552,7 +552,7 @@ void App::animationCommand(int id, int notification) {
                     uses += "Template " + std::to_string(b.templateId) + " state " + std::to_string(i) +
                             "\n";
         if (!uses.empty())
-            throw std::runtime_error("Unbind this animation before deletion:\n" + uses);
+            throw std::runtime_error("删除前请先解除以下绑定：\n" + uses);
         next.clips.erase(next.clips.begin() + index);
         frameIndex = 0;
     } else if (id == AnimationBind || id == AnimationUnbind) {
@@ -561,18 +561,18 @@ void App::animationCommand(int id, int notification) {
         auto clipId = id == AnimationBind ? next.clips[index].id : 0;
         int actor = selection(AnimationBindingActor), state = selection(AnimationBindingState);
         if (actor < 0 || state < 0 || state >= 6)
-            throw std::runtime_error("Select actor and state");
+            throw std::runtime_error("请选择角色和状态");
         if (actor == 0) {
             if (state >= 4)
-                throw std::runtime_error("Invalid player state");
+                throw std::runtime_error("无效的玩家状态");
             next.player[state] = clipId;
         } else if (actor == 1) {
             if (state >= 3)
-                throw std::runtime_error("Invalid Boss state");
+                throw std::runtime_error("无效的 Boss 状态");
             next.boss[state] = clipId;
         } else {
             if (actor - 2 >= int(objectLibrary.templates.size()))
-                throw std::runtime_error("Missing object template");
+                throw std::runtime_error("缺少对象模板");
             auto templateId = objectLibrary.templates[actor - 2].id;
             auto it = std::find_if(next.bindings.begin(), next.bindings.end(),
                                    [&](const auto& b) { return b.templateId == templateId; });
@@ -591,7 +591,7 @@ void App::animationCommand(int id, int notification) {
         if (id == AnimationApply) {
             auto name = field(controls[AnimationName]), sprite = field(controls[AnimationSprite]);
             if (name.empty() || name.size() >= 64 || sprite.empty() || sprite.size() >= 256)
-                throw std::runtime_error("Animation name / sprite reference is empty or too long");
+                throw std::runtime_error("动画名称或精灵引用为空或过长");
             clip.name.set(name);
             clip.sprite.set(sprite);
             clip.frameWidth = integer(controls[AnimationWidth], 1, 4096);
@@ -613,10 +613,10 @@ void App::animationCommand(int id, int notification) {
             int count = integer(controls[AnimationSplitCount], 1, 128);
             float fps = real(controls[AnimationSplitFPS]);
             if (fps < 1 || fps > 240 || !animationBitmap || animationBitmapW < clip.frameWidth)
-                throw std::runtime_error("Valid sheet and frame rate 1..240 required");
+                throw std::runtime_error("需要有效的图集，帧率需为 1–240");
             int columns = animationBitmapW / clip.frameWidth;
             if (startColumn >= columns)
-                throw std::runtime_error("Split start column is outside sheet");
+                throw std::runtime_error("切分起始列超出了图集范围");
             clip.frames.clear();
             for (int i = 0; i < count; ++i) {
                 AnimationFrame f;
@@ -652,7 +652,7 @@ void App::animationCommand(int id, int notification) {
                 ++frameIndex;
             } else if (id == AnimationFrameRemove) {
                 if (clip.frames.size() == 1)
-                    throw std::runtime_error("Keep at least one animation frame");
+                    throw std::runtime_error("至少保留一帧动画");
                 clip.frames.erase(clip.frames.begin() + frameIndex);
             } else if (id == AnimationFrameUp && frameIndex > 0) {
                 std::swap(clip.frames[frameIndex], clip.frames[frameIndex - 1]);
@@ -672,7 +672,7 @@ void App::animationCommand(int id, int notification) {
     animationPreviewPlaying = false;
     editor.dirty = true;
     animationForm();
-    message = "Animation applied. F5 starts a new timeline.";
+    message = "动画已应用，F5 试玩将使用新时间线";
     refreshChrome();
 }
 } // namespace echo

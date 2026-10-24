@@ -1,4 +1,5 @@
 #include "echo/app.hpp"
+#include <bit>
 #include <cmath>
 #include <commctrl.h>
 #include <uxtheme.h>
@@ -6,24 +7,13 @@
 namespace echo {
 namespace {
 using Palette = std::array<COLORREF, 8>;
+// Dialogs that still use native controls share the drawn chrome's theme tokens.
 Palette palette(bool dark) {
-    if (dark)
-        return {RGB(37, 41, 54),    RGB(43, 48, 64),    RGB(52, 59, 77),    RGB(69, 81, 106),
-                RGB(227, 230, 239), RGB(154, 166, 185), RGB(120, 172, 230), RGB(201, 169, 116)};
-    return {RGB(238, 241, 245), RGB(255, 255, 255), RGB(247, 249, 252), RGB(206, 214, 224),
-            RGB(44, 52, 66),    RGB(104, 116, 134), RGB(71, 137, 201),  RGB(145, 111, 66)};
+    const auto& t = ui::theme(dark);
+    return {ui::colorref(t.window), ui::colorref(t.panel), ui::colorref(t.sunken), ui::colorref(t.border),
+            ui::colorref(t.text),   ui::colorref(t.muted), ui::colorref(t.accent), ui::colorref(t.warn)};
 }
 
-void rounded(HDC dc, RECT r, COLORREF fill, COLORREF stroke, int radius = 8) {
-    auto brush = CreateSolidBrush(fill);
-    auto pen = CreatePen(PS_SOLID, 1, stroke);
-    auto oldB = SelectObject(dc, brush), oldP = SelectObject(dc, pen);
-    RoundRect(dc, r.left, r.top, r.right, r.bottom, radius, radius);
-    SelectObject(dc, oldB);
-    SelectObject(dc, oldP);
-    DeleteObject(brush);
-    DeleteObject(pen);
-}
 void string(HDC dc, HFONT font, const wchar_t* value, RECT r, COLORREF color,
             UINT align = DT_LEFT | DT_VCENTER | DT_SINGLELINE) {
     auto old = SelectObject(dc, font);
@@ -31,6 +21,61 @@ void string(HDC dc, HFONT font, const wchar_t* value, RECT r, COLORREF color,
     SetTextColor(dc, color);
     DrawTextW(dc, value, -1, &r, align);
     SelectObject(dc, old);
+}
+ui::Box box(RECT r) {
+    return {r.left, r.top, r.right - r.left, r.bottom - r.top};
+}
+std::wstring className(HWND h) {
+    wchar_t type[64]{};
+    GetClassNameW(h, type, 64);
+    return type;
+}
+bool hovered(HWND h) {
+    return GetPropW(h, L"EchoHover") != nullptr;
+}
+// Hover tracking shared by the subclassed controls; returns true when the state changed.
+bool trackHover(HWND h, UINT m) {
+    if (m == WM_MOUSEMOVE && !hovered(h)) {
+        SetPropW(h, L"EchoHover", reinterpret_cast<HANDLE>(1));
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, h, 0};
+        TrackMouseEvent(&track);
+        return true;
+    }
+    if (m == WM_MOUSELEAVE) {
+        RemovePropW(h, L"EchoHover");
+        return true;
+    }
+    return false;
+}
+// Bold companion of the 15 px dialog font (strongFont is reserved for in-game dialogue names).
+HFONT dialogBold() {
+    static HFONT bold = CreateFontW(-15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0, 0,
+                                    CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+    return bold;
+}
+bool primaryAction(int id) {
+    switch (id) {
+    case Apply: case PlatformApply: case LightApply: case DialogApply: case AudioApply: case PortalApply:
+    case LayerImageApply: case EventApply: case TransitionApply: case DataApply: case ObjectApply:
+    case ObjectInstanceApply: case AssetApply: case AnimationApply: case AnimationFrameApply:
+    case BarragePatternApply: case BarrageEmitterApply: case BarrageWaveApply: case BarrageTargetApply:
+    case FocusApply: case HurtRegionApply: case FrameRateApply: case CollisionApply: case InputApply:
+    case RewindRulesApply: case MobilityApply: case FeatureApply: case ChoiceApply:
+        return true;
+    default:
+        return false;
+    }
+}
+bool destructiveAction(int id) {
+    switch (id) {
+    case EventPageDelete: case EventRemove: case EventDelete: case DataDelete: case ObjectDelete:
+    case ObjectInstanceDelete: case AssetDelete: case AnimationDelete: case AnimationFrameRemove:
+    case BarrageDelete: case BarrageEmitterDelete: case BarrageWaveDelete: case HurtRegionDelete:
+    case ChoiceDelete: case FeatureDelete: case LayerImageClear:
+        return true;
+    default:
+        return false;
+    }
 }
 bool toggle(int id) {
     if (id >= EventControlFirst && id <= EventControlLast)
@@ -59,36 +104,97 @@ bool toggle(int id) {
            id == BarragePersistent || id == BarrageTargetExclude;
 }
 LRESULT CALLBACK comboProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR data) {
+    auto app = reinterpret_cast<App*>(data);
     if (m == WM_PAINT || m == WM_PRINTCLIENT) {
-        auto app = reinterpret_cast<App*>(data);
-        auto [bg, panel, field, border, text, muted, accent, gold] = palette(app->darkTheme);
         PAINTSTRUCT paint{};
         HDC dc = m == WM_PAINT ? BeginPaint(h, &paint) : reinterpret_cast<HDC>(w);
         RECT r;
         GetClientRect(h, &r);
-        rounded(dc, r, field, GetFocus() == h ? accent : border, 6);
-        DRAWITEMSTRUCT item{};
-        item.CtlType = ODT_COMBOBOX;
-        item.CtlID = GetDlgCtrlID(h);
-        item.itemID = UINT(SendMessageW(h, CB_GETCURSEL, 0, 0));
-        item.hwndItem = h;
-        item.hDC = dc;
-        item.rcItem = {r.left + 2, r.top + 2, r.right - 24, r.bottom - 2};
-        app->drawControl(item);
-        auto pen = CreatePen(PS_SOLID, 1, muted);
-        auto old = SelectObject(dc, pen);
-        int x = r.right - 15, y = (r.bottom - r.top) / 2;
-        MoveToEx(dc, x - 3, y - 2, nullptr);
-        LineTo(dc, x, y + 1);
-        LineTo(dc, x + 3, y - 2);
-        SelectObject(dc, old);
-        DeleteObject(pen);
+        std::wstring text;
+        int selected = int(SendMessageW(h, CB_GETCURSEL, 0, 0));
+        if (selected >= 0) {
+            text.resize(SendMessageW(h, CB_GETLBTEXTLEN, selected, 0) + 1);
+            SendMessageW(h, CB_GETLBTEXT, selected, reinterpret_cast<LPARAM>(text.data()));
+            text.resize(wcslen(text.c_str()));
+        }
+        ui::ControlState state;
+        state.hovered = hovered(h);
+        state.focused = GetFocus() == h || SendMessageW(h, CB_GETDROPPEDSTATE, 0, 0);
+        state.disabled = !IsWindowEnabled(h);
+        ui::Painter p;
+        p.resize(r.right, r.bottom);
+        ui::paintComboFace(p, box(r), text, app->font, ui::theme(app->darkTheme), app->surfaceBehind(h), state);
+        p.present(dc, box(r), 0, 0);
         if (m == WM_PAINT)
             EndPaint(h, &paint);
         return 0;
     }
-    if (m == WM_NCDESTROY)
+    if (trackHover(h, m))
+        InvalidateRect(h, nullptr, FALSE);
+    if (m == WM_SETFOCUS || m == WM_KILLFOCUS || m == WM_ENABLE || m == WM_CAPTURECHANGED) {
+        // The classic combo draws its focus state outside WM_PAINT; repaint the drawn face after it.
+        LRESULT result = DefSubclassProc(h, m, w, l);
+        InvalidateRect(h, nullptr, FALSE);
+        return result;
+    }
+    if (m == WM_NCDESTROY) {
+        RemovePropW(h, L"EchoHover");
         RemoveWindowSubclass(h, comboProc, 1);
+    }
+    return DefSubclassProc(h, m, w, l);
+}
+// Edit and list boxes: soft rounded frame drawn in the non-client area, plus inner padding that
+// also centres single-line text vertically.
+LRESULT CALLBACK fieldProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR data) {
+    auto app = reinterpret_cast<App*>(data);
+    switch (m) {
+    case WM_NCCALCSIZE: {
+        LRESULT result = DefSubclassProc(h, m, w, l);
+        RECT& c = w ? reinterpret_cast<NCCALCSIZE_PARAMS*>(l)->rgrc[0] : *reinterpret_cast<RECT*>(l);
+        auto style = GetWindowLongPtrW(h, GWL_STYLE);
+        auto type = className(h);
+        bool edit = type == L"Edit", multiline = style & ES_MULTILINE;
+        int padX = edit ? 5 : type == L"Static" ? 0 : 2, padY = edit && multiline ? 3 : type == L"Static" ? 0 : 2;
+        if (edit && !multiline) {
+            TEXTMETRICW metrics{};
+            HDC dc = GetDC(h);
+            auto old = SelectObject(dc, reinterpret_cast<HFONT>(SendMessageW(h, WM_GETFONT, 0, 0)));
+            GetTextMetricsW(dc, &metrics);
+            SelectObject(dc, old);
+            ReleaseDC(h, dc);
+            padY = std::max(1, int(c.bottom - c.top - metrics.tmHeight) / 2);
+        }
+        c.left += padX;
+        c.right -= (style & WS_VSCROLL) ? 0 : padX;
+        c.top += padY;
+        c.bottom -= (style & WS_HSCROLL) ? 0 : padY;
+        c.right = std::max(c.left, c.right);
+        c.bottom = std::max(c.top, c.bottom);
+        return result;
+    }
+    case WM_NCPAINT:
+        DefSubclassProc(h, m, w, l); // scroll bars
+        app->drawFieldFrame(h);
+        return 0;
+    case WM_SETFOCUS:
+    case WM_KILLFOCUS:
+    case WM_ENABLE: {
+        LRESULT result = DefSubclassProc(h, m, w, l);
+        app->drawFieldFrame(h);
+        return result;
+    }
+    case WM_MOUSEMOVE:
+    case WM_MOUSELEAVE:
+        if (trackHover(h, m))
+            app->drawFieldFrame(h);
+        break;
+    case WM_NCDESTROY:
+        RemovePropW(h, L"EchoHover");
+        RemoveWindowSubclass(h, fieldProc, 2);
+        break;
+    default:
+        break;
+    }
     return DefSubclassProc(h, m, w, l);
 }
 LRESULT CALLBACK buttonProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
@@ -104,19 +210,15 @@ LRESULT CALLBACK buttonProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_
         auto current = reinterpret_cast<std::intptr_t>(GetPropW(h, L"EchoChecked"));
         SetPropW(h, L"EchoChecked", reinterpret_cast<HANDLE>(current ? 0 : 1));
     }
-    if (m == WM_MOUSEMOVE) {
-        if (!GetPropW(h, L"EchoHover")) {
-            SetPropW(h, L"EchoHover", reinterpret_cast<HANDLE>(1));
-            InvalidateRect(h, nullptr, FALSE);
-            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, h, 0};
-            TrackMouseEvent(&track);
-        }
-    }
-    if (m == WM_MOUSELEAVE) {
-        RemovePropW(h, L"EchoHover");
+    if (trackHover(h, m))
+        InvalidateRect(h, nullptr, FALSE);
+    if (m == WM_LBUTTONDOWN || m == WM_KILLFOCUS) {
+        // The focus ring is only for focus that arrived from the keyboard (App::dialogKey).
+        RemovePropW(h, L"EchoKeyFocus");
         InvalidateRect(h, nullptr, FALSE);
     }
     if (m == WM_NCDESTROY) {
+        RemovePropW(h, L"EchoKeyFocus");
         RemovePropW(h, L"EchoChecked");
         RemovePropW(h, L"EchoHover");
         RemoveWindowSubclass(h, buttonProc, 1);
@@ -124,269 +226,257 @@ LRESULT CALLBACK buttonProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_
     return DefSubclassProc(h, m, w, l);
 }
 } // namespace
+// Cards painted behind the controls of the older dialogs (client coordinates).
+std::vector<RECT> App::cardRects(HWND h) const {
+    if (h == eventEditor)
+        return {{8, 8, 272, 748}, {276, 8, 714, 708}, {720, 8, 1162, 708}};
+    if (h == objectsEditor)
+        return {{8, 8, 282, 744}, {288, 8, 762, 744}, {774, 8, 1208, 744}, {8, 750, 1208, 794}};
+    if (h == focusEditor)
+        return {{8, 8, 422, 897}, {426, 8, 862, 897}, {870, 8, 1310, 897}};
+    if (h == barrageTargetEditor)
+        return {{8, 8, 748, 510}};
+    if (h == barrageEditor)
+        return {{8, 8, 282, 878}, {290, 8, 716, 878}, {724, 8, 1300, 878}};
+    if (h == animationsEditor)
+        return {{8, 8, 282, 806}, {290, 8, 716, 806}, {724, 8, 1300, 806}};
+    if (h == assetsEditor)
+        return {{8, 8, 482, 694}, {490, 8, 1136, 694}, {8, 700, 1136, 771}};
+    if (h == transitionEditor)
+        return {{8, 8, 327, 520}, {338, 8, 918, 520}};
+    return {};
+}
+// True when a control sits on a card (or the settings panel) rather than the window background.
+bool App::onCard(HWND control) const {
+    HWND parent = GetParent(control);
+    if (parent == side)
+        return true;
+    RECT r{};
+    GetWindowRect(control, &r);
+    POINT centre{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+    ScreenToClient(parent, &centre);
+    for (const auto& card : cardRects(parent))
+        if (PtInRect(&card, centre))
+            return true;
+    return false;
+}
+ui::Color App::surfaceBehind(HWND control) const {
+    const auto& t = ui::theme(darkTheme);
+    return onCard(control) ? t.panel : t.window;
+}
+void App::drawFieldFrame(HWND h) {
+    RECT frame{};
+    GetWindowRect(h, &frame);
+    int width = frame.right - frame.left, height = frame.bottom - frame.top;
+    if (width <= 0 || height <= 0)
+        return;
+    RECT client{};
+    GetClientRect(h, &client);
+    POINT origin{0, 0};
+    ClientToScreen(h, &origin);
+    OffsetRect(&client, origin.x - frame.left, origin.y - frame.top);
+    auto style = GetWindowLongPtrW(h, GWL_STYLE);
+    ui::ControlState state;
+    state.focused = GetFocus() == h;
+    state.hovered = hovered(h);
+    state.disabled = !IsWindowEnabled(h);
+    ui::Painter p;
+    p.resize(width, height);
+    // Square-ish corners where native scroll bars meet the frame.
+    ui::paintFieldFrame(p, {0, 0, width, height}, ui::theme(darkTheme), surfaceBehind(h), state,
+                        (style & (WS_VSCROLL | WS_HSCROLL)) ? 3.0f : 6.0f);
+    HDC dc = GetWindowDC(h);
+    ExcludeClipRect(dc, client.left, client.top, client.right, client.bottom);
+    for (LONG bar : {LONG(OBJID_VSCROLL), LONG(OBJID_HSCROLL)}) {
+        SCROLLBARINFO info{};
+        info.cbSize = sizeof(info);
+        if (GetScrollBarInfo(h, bar, &info) && !(info.rgstate[0] & (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_OFFSCREEN))) {
+            RECT r = info.rcScrollBar;
+            OffsetRect(&r, -frame.left, -frame.top);
+            ExcludeClipRect(dc, r.left, r.top, r.right, r.bottom);
+        }
+    }
+    p.present(dc, {0, 0, width, height}, 0, 0);
+    ReleaseDC(h, dc);
+}
+// Title bars follow the theme on Windows 10 20H1+ (attribute 20; 1809-1909 used 19).
+void App::applyTitleBarTheme(HWND h) const {
+    using SetAttribute = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    static auto set = [] {
+        HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+        return dwm ? std::bit_cast<SetAttribute>(GetProcAddress(dwm, "DwmSetWindowAttribute")) : nullptr;
+    }();
+    if (!set || !h || resources.published) // games keep the system title bar
+        return;
+    BOOL dark = darkTheme;
+    if (FAILED(set(h, 20, &dark, sizeof(dark))))
+        set(h, 19, &dark, sizeof(dark));
+}
+// Dark scroll bars and drop-down lists come from the system's dark visual styles.
+void App::themeNativeControl(HWND h) {
+    auto type = className(h);
+    if (type == L"ComboBox")
+        SetWindowTheme(h, darkTheme ? L"DarkMode_CFD" : nullptr, nullptr);
+    else if (type == L"Edit" || type == L"ListBox")
+        SetWindowTheme(h, darkTheme ? L"DarkMode_Explorer" : nullptr, nullptr);
+    else if (type != L"Static")
+        return;
+    SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
 void App::themeControl(HWND h, int, const wchar_t* type) {
-    if (std::wstring_view(type) == L"BUTTON") {
+    std::wstring_view kind = type;
+    if (kind == L"BUTTON") {
         SetWindowLongPtrW(h, GWL_STYLE, (GetWindowLongPtrW(h, GWL_STYLE) & ~0xf) | BS_OWNERDRAW);
         SetWindowSubclass(h, buttonProc, 1, 0);
-    } else if (std::wstring_view(type) == L"COMBOBOX") {
-        SetWindowTheme(h, L"DarkMode_CFD", nullptr);
+    } else if (kind == L"COMBOBOX") {
         SetWindowSubclass(h, comboProc, 1, reinterpret_cast<DWORD_PTR>(this));
+        themeNativeControl(h);
+    } else if (kind == L"EDIT" || kind == L"LISTBOX" ||
+               (kind == L"STATIC" && (GetWindowLongPtrW(h, GWL_STYLE) & WS_BORDER))) {
+        SetWindowSubclass(h, fieldProc, 2, reinterpret_cast<DWORD_PTR>(this));
+        themeNativeControl(h); // also recomputes the padded client area
     }
 }
 void App::drawControl(const DRAWITEMSTRUCT& item) {
-    auto [bg, panel, field, border, text, muted, accent, gold] = palette(darkTheme);
-    if (item.CtlType == ODT_COMBOBOX) {
-        RECT r = item.rcItem;
-        SetBkColor(item.hDC, field);
-        SetTextColor(item.hDC, text);
-        FillRect(item.hDC, &r, fieldBrush);
-        int selected = item.itemID == UINT(-1) ? int(SendMessageW(item.hwndItem, CB_GETCURSEL, 0, 0))
-                                               : int(item.itemID);
-        if (selected >= 0) {
-            wchar_t value[256]{};
-            SendMessageW(item.hwndItem, CB_GETLBTEXT, selected, reinterpret_cast<LPARAM>(value));
-            if (item.itemState & ODS_SELECTED) {
-                auto selected = CreateSolidBrush(darkTheme ? RGB(55, 77, 105) : RGB(224, 236, 250));
-                FillRect(item.hDC, &r, selected);
-                DeleteObject(selected);
-            }
-            r.left += 9;
-            string(item.hDC, font, value, r, IsWindowEnabled(item.hwndItem) ? text : muted);
+    const auto& t = ui::theme(darkTheme);
+    int width = item.rcItem.right - item.rcItem.left, height = item.rcItem.bottom - item.rcItem.top;
+    if (width <= 0 || height <= 0)
+        return;
+    ui::Painter p;
+    p.resize(width, height);
+    ui::Box area{0, 0, width, height};
+    auto present = [&] { p.present(item.hDC, area, item.rcItem.left, item.rcItem.top); };
+    if (item.CtlType == ODT_COMBOBOX || item.CtlType == ODT_LISTBOX) {
+        if (item.itemState & ODS_COMBOBOXEDIT) {
+            InvalidateRect(item.hwndItem, nullptr, FALSE); // the face is painted by comboProc
+            return;
         }
+        if (item.itemID == UINT(-1)) {
+            p.fill(area, t.sunken);
+            present();
+            return;
+        }
+        bool combo = item.CtlType == ODT_COMBOBOX;
+        std::wstring text(SendMessageW(item.hwndItem, combo ? CB_GETLBTEXTLEN : LB_GETTEXTLEN, item.itemID, 0) + 1, 0);
+        SendMessageW(item.hwndItem, combo ? CB_GETLBTEXT : LB_GETTEXT, item.itemID,
+                     reinterpret_cast<LPARAM>(text.data()));
+        text.resize(wcslen(text.c_str()));
+        ui::ControlState state;
+        state.active = item.itemState & ODS_SELECTED;
+        state.disabled = (item.itemState & ODS_DISABLED) || !IsWindowEnabled(item.hwndItem);
+        // Drop-down lists are popups (panel colour); list boxes follow their own field fill.
+        ui::paintListItem(p, area, text, font, t, state,
+                          combo ? t.panel : ui::fieldFill(t, surfaceBehind(item.hwndItem)));
+        present();
         return;
     }
     int id = item.CtlID;
-    bool dockTile = id >= WorkspaceTileFirst && id <= WorkspaceTileLast;
-    if ((id >= 400 && id < 416) || dockTile) {
-        RECT r = item.rcItem;
-        int index = dockTile ? id - WorkspaceTileFirst : id - 400;
+    ui::Color surface = surfaceBehind(item.hwndItem);
+    if (id >= 400 && id < 416) {
+        // Floating tile palette cell: thumbnail at an integer scale, number underneath.
+        int index = id - 400;
         bool selected = editor.tileIndex == index + 1;
-        FillRect(item.hDC, &r, panelBrush);
-        int size = dockTile ? 48 : 56;
-        int left = r.left + (r.right - r.left - size) / 2, top = r.top + (dockTile ? 5 : 8);
-        if (tileAtlas) {
-            int frame = config.tileFrame, columns = tileAtlasW / frame;
-            if (columns > 0 && index < columns * (tileAtlasH / frame)) {
-                auto source = CreateCompatibleDC(item.hDC);
-                auto old = SelectObject(source, tileAtlas);
-                SetStretchBltMode(item.hDC, COLORONCOLOR);
-                StretchBlt(item.hDC, left, top, size, size, source, index % columns * frame,
-                           index / columns * frame, frame, frame, SRCCOPY);
-                SelectObject(source, old);
-                DeleteDC(source);
-            }
-        } else {
-            rounded(item.hDC, {left, top, left + size, top + size}, field, border, 0);
-            auto number = std::to_wstring(index + 1);
-            string(item.hDC, font, number.c_str(), {left, top, left + size, top + size}, muted,
-                   DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        p.fill(area, surface);
+        ui::Box cell = area.inset(2, 2);
+        p.round(cell, 7, t.sunken, selected ? t.accent : hovered(item.hwndItem) ? t.borderStrong : t.border,
+                selected ? 2.0f : 1.0f);
+        ui::Box image = cell.inset(8, 8);
+        image.h -= 16;
+        int frame = config.tileFrame, columns = frame > 0 ? tileAtlasW / frame : 0;
+        if (tileAtlas && columns > 0 && index < columns * (tileAtlasH / frame)) {
+            int size = std::min(image.w, image.h);
+            if (size >= frame)
+                size = size / frame * frame;
+            p.image(tileAtlas, index % columns * frame, index / columns * frame, frame, frame,
+                    {image.x + (image.w - size) / 2, image.y + (image.h - size) / 2, size, size});
         }
-        RECT edge{r.left + 1, r.top + 1, r.right - 1, r.bottom - 1};
-        auto pen = CreatePen(PS_SOLID, selected ? 2 : 1, selected ? accent : border);
-        auto oldP = SelectObject(item.hDC, pen),
-             oldB = SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
-        Rectangle(item.hDC, edge.left, edge.top, edge.right, edge.bottom);
-        SelectObject(item.hDC, oldP);
-        SelectObject(item.hDC, oldB);
-        DeleteObject(pen);
-        if (!dockTile) {
-            auto number = std::to_wstring(index + 1);
-            string(item.hDC, smallFont, number.c_str(), {r.left, r.bottom - 20, r.right, r.bottom - 2},
-                   selected ? accent : muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        }
+        p.text({cell.x, cell.bottom() - 22, cell.w, 18}, std::to_wstring(index + 1), smallFont,
+               selected ? t.accentText : t.muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        present();
         return;
     }
-    RECT r = item.rcItem;
-    bool hovered = GetPropW(item.hwndItem, L"EchoHover"), pressed = item.itemState & ODS_SELECTED;
-    bool active = (id >= 1 && id <= 17 && editing && editor.tool == id) || (id == Edit && editing);
-    active = active || (id == WorkspaceObjects && editing && editor.tool == 22) ||
-             (id == WorkspaceBarrage && editing && editor.tool == 23) ||
-             (id == 1 && editing && workspaceMode == 0) ||
-             (id == WorkspacePencil && editor.tool == int(editor.terrain)) ||
-             (id >= WorkspaceRectangle && id <= WorkspacePick &&
-              editor.tool == 18 + int(id - WorkspaceRectangle)) ||
-             (id >= WorkspaceTerrain && id <= WorkspaceErase &&
-              editor.tool == int(id - WorkspaceTerrain + 1));
-    bool primary = id == Play;
-    COLORREF fill = active    ? (darkTheme ? RGB(55, 77, 105) : RGB(224, 236, 250))
-                    : hovered ? (darkTheme ? RGB(61, 69, 87) : RGB(230, 236, 245))
-                              : field;
-    COLORREF stroke = active ? accent : border;
-    COLORREF foreground = active ? accent : text;
-    if (primary) {
-        fill = pressed ? RGB(53, 114, 177) : hovered ? RGB(96, 159, 220) : accent;
-        stroke = fill;
-        foreground = darkTheme ? bg : RGB(255, 255, 255);
-    }
-    if (id == Save && editor.dirty)
-        stroke = gold;
-    if (pressed && !primary)
-        fill = darkTheme ? RGB(69, 87, 114) : RGB(212, 226, 246);
+    std::wstring text(GetWindowTextLengthW(item.hwndItem) + 1, 0);
+    GetWindowTextW(item.hwndItem, text.data(), int(text.size()));
+    text.resize(wcslen(text.c_str()));
+    ui::ControlState state;
+    state.hovered = hovered(item.hwndItem);
+    state.pressed = item.itemState & ODS_SELECTED;
+    state.disabled = !IsWindowEnabled(item.hwndItem);
+    state.active = id >= 1 && id <= 17 && editing && editor.tool == id;
+    state.primary = primaryAction(id);
+    state.focused = (item.itemState & ODS_FOCUS) && GetPropW(item.hwndItem, L"EchoKeyFocus");
     if (toggle(id)) {
-        FillRect(item.hDC, &r, panelBrush);
-        RECT box{r.left + 2, r.top + 5, r.left + 18, r.top + 21};
-        bool checked = SendMessageW(item.hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        rounded(item.hDC, box, checked ? accent : field, checked ? accent : border, 4);
-        if (checked) {
-            auto pen = CreatePen(PS_SOLID, 2, bg);
-            auto old = SelectObject(item.hDC, pen);
-            MoveToEx(item.hDC, box.left + 3, box.top + 8, nullptr);
-            LineTo(item.hDC, box.left + 7, box.top + 12);
-            LineTo(item.hDC, box.left + 13, box.top + 4);
-            SelectObject(item.hDC, old);
-            DeleteObject(pen);
-        }
-        wchar_t value[128]{};
-        GetWindowTextW(item.hwndItem, value, 128);
-        RECT label = r;
-        label.left += 28;
-        string(item.hDC, font, value, label,
-               !IsWindowEnabled(item.hwndItem) ? muted
-               : hovered                       ? accent
-                                               : text);
-        return;
-    }
-    bool menu = id >= WorkspaceFile && id <= WorkspaceHelp;
-    rounded(item.hDC, r, menu && !hovered ? bg : fill, menu && !hovered ? bg : stroke, 4);
-    wchar_t value[128]{};
-    GetWindowTextW(item.hwndItem, value, 128);
-    string(item.hDC, primary ? strongFont : font, value, r,
-           IsWindowEnabled(item.hwndItem) ? foreground : muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    if (item.itemState & ODS_FOCUS) {
-        RECT focus = r;
-        InflateRect(&focus, -3, -3);
-        auto pen = CreatePen(PS_DOT, 1, accent);
-        auto oldP = SelectObject(item.hDC, pen);
-        auto oldB = SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
-        RoundRect(item.hDC, focus.left, focus.top, focus.right, focus.bottom, 5, 5);
-        SelectObject(item.hDC, oldB);
-        SelectObject(item.hDC, oldP);
-        DeleteObject(pen);
-    }
+        state.checked = SendMessageW(item.hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ui::paintCheckBox(p, area, text, font, t, surface, state);
+    } else if (destructiveAction(id) && !state.disabled) {
+        // Destructive actions: neutral face, red label, red tint on hover.
+        ui::Theme danger = t;
+        danger.text = t.stop;
+        danger.hover = ui::mix(t.raised, t.stop, t.dark ? .16f : .08f);
+        danger.pressed = ui::mix(t.raised, t.stop, t.dark ? .24f : .14f);
+        ui::paintPushButton(p, area, text, font, danger, surface, state);
+    } else
+        ui::paintPushButton(p, area, text, state.primary ? dialogBold() : font, t, surface, state);
+    present();
 }
 LRESULT App::colorControl(HDC dc, HWND control) {
-    auto [bg, panel, field, border, text, muted, accent, gold] = palette(darkTheme);
-    wchar_t type[64]{};
-    GetClassNameW(control, type, 64);
-    bool edit = std::wstring_view(type) == L"Edit" || std::wstring_view(type) == L"ComboBox" ||
-                std::wstring_view(type) == L"ListBox";
-    SetTextColor(dc, edit && IsWindowEnabled(control) ? text : muted);
-    bool root = GetParent(control) != side;
-    if ((GetParent(control) == eventEditor || GetParent(control) == transitionEditor) && !edit) {
-        SetBkMode(dc, TRANSPARENT);
-        return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
+    const auto& t = ui::theme(darkTheme);
+    auto type = className(control);
+    bool well = type == L"Static" && (GetWindowLongPtrW(control, GWL_STYLE) & WS_BORDER);
+    bool field = type == L"Edit" || type == L"ComboBox" || type == L"ListBox" || well;
+    SetTextColor(dc, ui::colorref((field || type == L"ComboLBox") && IsWindowEnabled(control) ? t.text : t.muted));
+    if (type == L"ComboLBox") {
+        SetBkColor(dc, ui::colorref(t.panel));
+        return reinterpret_cast<LRESULT>(panelBrush);
     }
-    SetBkColor(dc, edit ? field : root ? bg : panel);
-    return reinterpret_cast<LRESULT>(edit ? fieldBrush : root ? windowBrush : panelBrush);
+    if (field) {
+        // Same rule as ui::fieldFill: inset on cards, raised on the window background.
+        bool card = onCard(control);
+        SetBkColor(dc, ui::colorref(card ? t.sunken : t.panel));
+        return reinterpret_cast<LRESULT>(card ? fieldBrush : panelBrush);
+    }
+    bool card = onCard(control);
+    SetBkColor(dc, ui::colorref(card ? t.panel : t.window));
+    return reinterpret_cast<LRESULT>(card ? panelBrush : windowBrush);
 }
 void App::paintChrome(HWND h, HDC supplied) {
-    auto [bg, panel, field, border, text, muted, accent, gold] = palette(darkTheme);
     PAINTSTRUCT paint{};
     HDC dc = supplied ? supplied : BeginPaint(h, &paint);
     RECT area;
     GetClientRect(h, &area);
-    FillRect(dc, &area, (h == side || h == workspace) ? panelBrush : windowBrush);
-    if (h == window && resources.published) {
+    if (h == window && !resources.published) {
+        paintWorkspace(dc, supplied ? nullptr : &paint.rcPaint);
         if (!supplied)
             EndPaint(h, &paint);
         return;
     }
+    const auto& t = ui::theme(darkTheme);
     if (h == window) {
-        string(dc, smallFont, L"ECHO ENGINE", {480, 2, area.right - 12, 28}, muted,
-               DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-        auto title = wide(pathUtf8(pathFromUtf8(config.maps[editMap]).stem()));
-        if (editor.dirty)
-            title += L"  \u2022 \u672a\u4fdd\u5b58";
-        title += editing ? L"    /    \u5173\u5361\u7f16\u8f91" : L"    /    \u8bd5\u73a9\u4e2d";
-        string(dc, font, title.c_str(), {workspaceWidth + 12, 72, area.right - 220, 100}, text);
-        string(
-            dc, smallFont, L"\u6eda\u8f6e\u5e73\u79fb  \u00b7  F5 \u8bd5\u73a9  \u00b7  F2 \u7f16\u8f91",
-            {area.right - 260, 72, area.right - 12, 100}, muted, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-        auto pen = CreatePen(PS_SOLID, 1, border);
-        auto old = SelectObject(dc, pen);
-        MoveToEx(dc, 0, 29, nullptr);
-        LineTo(dc, area.right, 29);
-        MoveToEx(dc, 0, 70, nullptr);
-        LineTo(dc, area.right, 70);
-        MoveToEx(dc, 0, area.bottom - 26, nullptr);
-        LineTo(dc, area.right, area.bottom - 26);
-        SelectObject(dc, old);
-        DeleteObject(pen);
-    } else if (h == workspace) {
-        const wchar_t* titles[] = {L"\u56fe\u5757", L"\u5730\u56fe\u4e8b\u4ef6",
-                                   L"\u5bf9\u8c61\u6a21\u677f", L"\u5730\u56fe\u53d1\u5c04\u5668",
-                                   L"平台机关"};
-        string(dc, font, titles[workspaceMode], {12, 6, area.right - 68, 32}, text);
-        if (workspaceMode)
-            string(dc, smallFont,
-                   workspaceMode == 4   ? L"地图区域 · 选择或双击编辑"
-                   : workspaceMode == 1 ? L"\u90e8\u7f72\u5728\u5f53\u524d\u5730\u56fe\u7684\u4e8b\u4ef6"
-                   : workspaceMode == 2
-                       ? L"\u53ef\u590d\u7528\u6a21\u677f \u00b7 \u5355\u51fb\u9009\u62e9"
-                       : L"\u5f53\u524d\u5730\u56fe \u00b7 \u73b0\u6709\u53d1\u5c04\u5668",
-                   {12, 36, area.right - 10, 64}, muted);
-        string(dc, font, L"\u5de5\u7a0b\u5730\u56fe", {12, 384, area.right - 68, 409}, text);
-        auto pen = CreatePen(PS_SOLID, 1, border);
-        auto old = SelectObject(dc, pen);
-        MoveToEx(dc, area.right - 1, 0, nullptr);
-        LineTo(dc, area.right - 1, area.bottom);
-        MoveToEx(dc, 6, 380, nullptr);
-        LineTo(dc, area.right - 6, 380);
-        SelectObject(dc, old);
-        DeleteObject(pen);
-    } else if (h == eventEditor) {
-        rounded(dc, {8, 8, 272, 748}, panel, border, 10);
-        rounded(dc, {276, 8, 714, 708}, panel, border, 10);
-        rounded(dc, {720, 8, 1162, 708}, panel, border, 10);
-    } else if (h == objectsEditor) {
-        rounded(dc, {8, 8, 282, 744}, panel, border, 10);
-        rounded(dc, {288, 8, 762, 744}, panel, border, 10);
-        rounded(dc, {774, 8, 1208, 744}, panel, border, 10);
-        rounded(dc, {8, 750, 1208, 794}, panel, border, 10);
-    } else if (h == focusEditor) {
-        rounded(dc, {8, 8, 422, 897}, panel, border, 10);
-        rounded(dc, {426, 8, 862, 897}, panel, border, 10);
-        rounded(dc, {870, 8, 1310, 897}, panel, border, 10);
-    } else if (h == barrageTargetEditor) {
-        rounded(dc, {8, 8, 748, 510}, panel, border, 10);
-    } else if (h == barrageEditor) {
-        rounded(dc, {8, 8, 282, 878}, panel, border, 10);
-        rounded(dc, {290, 8, 716, 878}, panel, border, 10);
-        rounded(dc, {724, 8, 1300, 878}, panel, border, 10);
-    } else if (h == animationsEditor) {
-        rounded(dc, {8, 8, 282, 806}, panel, border, 10);
-        rounded(dc, {290, 8, 716, 806}, panel, border, 10);
-        rounded(dc, {724, 8, 1300, 806}, panel, border, 10);
-    } else if (h == assetsEditor) {
-        rounded(dc, {8, 8, 482, 694}, panel, border, 10);
-        rounded(dc, {490, 8, 1136, 694}, panel, border, 10);
-        rounded(dc, {8, 700, 1136, 771}, panel, border, 10);
-    } else if (h == transitionEditor) {
-        rounded(dc, {8, 8, 327, 520}, panel, border, 10);
-        rounded(dc, {338, 8, 918, 520}, panel, border, 10);
-    } else if (h == side) {
+        FillRect(dc, &area, windowBrush);
+        if (!supplied)
+            EndPaint(h, &paint);
+        return;
+    }
+    // Older dialogs: background and anti-aliased cards rendered offscreen, then copied once.
+    ui::Painter p;
+    p.resize(area.right, area.bottom);
+    p.fill(box(area), h == side ? t.panel : t.window);
+    for (const auto& card : cardRects(h))
+        p.round(box(card), 10, t.panel, t.border);
+    if (h == side) {
         int y = -sideScroll;
-        auto card = [&](int top, int bottom) {
-            rounded(dc, {8, top + y, area.right - 8, bottom + y}, panel, border, 10);
-        };
-        card(54, 144);
-        card(148, 190);
-        card(222, 562);
-        card(596, 700);
-        card(738, 842);
-        card(880, 1020);
-        card(1048, 1196);
-        string(dc, strongFont, L"场景设置", {16, 10 + y, 230, 37 + y}, text);
-        RECT track{area.right - 10, 4, area.right - 4, area.bottom - 4};
-        rounded(dc, track, field, field, 5);
+        for (auto [top, bottom] : std::vector<std::pair<int, int>>{
+                 {54, 144}, {148, 190}, {222, 562}, {596, 700}, {738, 842}, {880, 1020}, {1048, 1196}})
+            p.round({8, top + y, int(area.right) - 16, bottom - top}, 10, t.panel, t.border);
+        p.text({16, 10 + y, 214, 27}, L"场景设置", strongFont, t.text);
+        p.text({170, 10 + y, int(area.right) - 186, 27}, L"参数", smallFont, t.muted,
+               DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
         int height = std::max(36, int(area.bottom * area.bottom / 1306.0f));
         int top = int(sideScroll * (area.bottom - height) / float(std::max(1L, 1306 - area.bottom)));
-        rounded(dc, {track.left, top + 4, track.right, std::min(int(area.bottom) - 4, top + height)},
-                darkTheme ? RGB(81, 95, 119) : RGB(173, 186, 204),
-                darkTheme ? RGB(81, 95, 119) : RGB(173, 186, 204), 5);
-        string(dc, smallFont, L"参数", {170, 10 + y, area.right - 16, 37 + y}, muted,
-               DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+        p.round({int(area.right) - 9, top + 4, 4, std::min(int(area.bottom) - 8 - top, height)}, 2,
+                ui::alpha(t.faint, .7f));
     }
+    p.present(dc, box(area), 0, 0);
     if (!supplied)
         EndPaint(h, &paint);
 }
@@ -404,13 +494,14 @@ void App::setTheme(bool dark) {
     fieldBrush = CreateSolidBrush(colors[2]);
     if (window)
         SetClassLongPtrW(window, GCLP_HBRBACKGROUND, reinterpret_cast<LONG_PTR>(windowBrush));
-    if (mapTree && IsWindow(mapTree)) {
-        TreeView_SetBkColor(mapTree, colors[1]);
-        TreeView_SetTextColor(mapTree, colors[4]);
-        TreeView_SetLineColor(mapTree, colors[3]);
-        // Native themed inactive selection ignores custom colors on older Windows.
-        SetWindowTheme(mapTree, L"", L"");
-    }
+    auto backdrop = ui::theme(darkTheme).backdrop;
+    renderer.editorBackdrop = {backdrop.r / 255.0f, backdrop.g / 255.0f, backdrop.b / 255.0f};
+    chromeTip.hide();
+    for (auto& [id, h] : controls)
+        if (h && IsWindow(h))
+            themeNativeControl(h);
+    applyTitleBarTheme(window);
+    applyTitleBarTheme(side);
     refreshChrome();
     for (HWND h : {dialogEditor,          audioEditor,      mapEditor,
                    layerEditor,           eventEditor,      tilePalette,
@@ -420,20 +511,22 @@ void App::setTheme(bool dark) {
                    barrageTargetEditor,   focusEditor,      frameRateEditor,
                    snapshotCompareEditor, collisionEditor,  inputEditor,
                    rewindRulesEditor,     choiceEditor,     mobilityEditor})
-        if (h && IsWindow(h))
-            RedrawWindow(h, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+        if (h && IsWindow(h)) {
+            applyTitleBarTheme(h);
+            RedrawWindow(h, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
+        }
 }
 void App::refreshChrome() {
     if (!initialized)
         return;
-    if (workspace && !refreshingWorkspace)
+    if (!resources.published && !refreshingWorkspace)
         refreshWorkspace();
     InvalidateRect(window, nullptr, FALSE);
-    InvalidateRect(side, nullptr, FALSE);
-    if (workspace)
-        InvalidateRect(workspace, nullptr, FALSE);
+    if (side)
+        InvalidateRect(side, nullptr, FALSE);
+    // A null HWND would invalidate every window on the desktop.
     for (auto& [id, h] : controls)
-        if (id != 0 && id != 999)
+        if (h && id != 0 && id != 999)
             InvalidateRect(h, nullptr, FALSE);
 }
 void App::scrollSide(int amount) {
@@ -476,9 +569,9 @@ void App::printUi(HDC dc, HWND target) {
         [](HWND h, LPARAM param) -> BOOL {
             auto& c = *reinterpret_cast<Context*>(param);
             auto& app = *c.app;
-            auto [bg, panel, field, border, text, muted, accent, gold] = palette(app.darkTheme);
+            const auto& t = ui::theme(app.darkTheme);
             HWND parent = GetParent(h);
-            if ((parent != c.target && parent != app.workspace && parent != app.side) ||
+            if ((parent != c.target && parent != app.side) ||
                 h == app.canvas || h == app.side || !(GetWindowLongPtrW(h, GWL_STYLE) & WS_VISIBLE))
                 return TRUE;
             RECT r;
@@ -498,9 +591,7 @@ void App::printUi(HDC dc, HWND target) {
             IntersectClipRect(c.dc, 0, 0, width, height);
             wchar_t type[64]{};
             GetClassNameW(h, type, 64);
-            if (h == app.workspace) {
-                app.paintChrome(h, c.dc);
-            } else if (std::wstring_view(type) == L"SysTreeView32") {
+            if (std::wstring_view(type) == L"SysTreeView32") {
                 SendMessageW(h, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(c.dc), PRF_CLIENT);
             } else if (std::wstring_view(type) == L"EchoHurtPreview") {
                 app.paintFocus(c.dc, {0, 0, width, height});
@@ -515,7 +606,22 @@ void App::printUi(HDC dc, HWND target) {
             } else if (std::wstring_view(type) == L"ComboBox")
                 SendMessageW(h, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(c.dc), PRF_CLIENT);
             else {
+                bool edit = std::wstring_view(type) == L"Edit";
+                bool scrolls = GetWindowLongPtrW(h, GWL_STYLE) & (WS_VSCROLL | WS_HSCROLL);
+                if (edit || std::wstring_view(type) == L"ListBox") {
+                    // Same frame as fieldProc's non-client painting.
+                    ui::Painter frame;
+                    frame.resize(width, height);
+                    ui::ControlState state;
+                    state.disabled = !IsWindowEnabled(h);
+                    ui::paintFieldFrame(frame, {0, 0, width, height}, t, app.surfaceBehind(h), state,
+                                        scrolls ? 3.0f : 6.0f);
+                    frame.present(c.dc, {0, 0, width, height}, 0, 0);
+                }
                 if (std::wstring_view(type) == L"ListBox") {
+                    POINT client{0, 0};
+                    ClientToScreen(h, &client);
+                    SetViewportOrgEx(c.dc, p.x + client.x - r.left, p.y + client.y - r.top, nullptr);
                     SendMessageW(h, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(c.dc), PRF_CLIENT);
                     RestoreDC(c.dc, saved);
                     return TRUE;
@@ -530,16 +636,11 @@ void App::printUi(HDC dc, HWND target) {
                     RestoreDC(c.dc, saved);
                     return TRUE;
                 }
-                bool edit = std::wstring_view(type) == L"Edit";
-                bool root = parent == app.window;
                 RECT a{0, 0, width, height};
-                FillRect(c.dc, &a, edit ? app.fieldBrush : root ? app.windowBrush : app.panelBrush);
-                if (edit) {
-                    auto b = CreateSolidBrush(border);
-                    FrameRect(c.dc, &a, b);
-                    DeleteObject(b);
-                    a.left += 7;
-                }
+                if (edit)
+                    InflateRect(&a, -8, -5);
+                else
+                    FillRect(c.dc, &a, app.onCard(h) ? app.panelBrush : app.windowBrush);
                 if (GetDlgCtrlID(h) == AssetThumbnail && app.assetThumbnail) {
                     BITMAP bitmap{};
                     GetObjectW(app.assetThumbnail, sizeof(bitmap), &bitmap);
@@ -555,9 +656,11 @@ void App::printUi(HDC dc, HWND target) {
                 std::wstring value(GetWindowTextLengthW(h) + 1, 0);
                 GetWindowTextW(h, value.data(), int(value.size()));
                 auto font = reinterpret_cast<HFONT>(SendMessageW(h, WM_GETFONT, 0, 0));
+                bool multiline = GetWindowLongPtrW(h, GWL_STYLE) & ES_MULTILINE;
                 string(c.dc, font ? font : app.font, value.c_str(), a,
-                       edit && IsWindowEnabled(h) ? text : muted,
-                       edit ? DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL
+                       ui::colorref(edit && IsWindowEnabled(h) ? t.text : t.muted),
+                       edit ? (multiline ? DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL
+                                         : DT_LEFT | DT_VCENTER | DT_SINGLELINE)
                             : ((GetDlgCtrlID(h) == AssetInfo || GetDlgCtrlID(h) == BarragePreviewInfo ||
                                 GetDlgCtrlID(h) == BarrageTargetHint)
                                    ? DT_LEFT | DT_WORDBREAK

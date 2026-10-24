@@ -24,23 +24,23 @@ float real(HWND h) {
     std::size_t used{};
     float v = std::stof(text, &used);
     if (!std::isfinite(v) || text.find_first_not_of(" \t\r\n", used) != std::string::npos)
-        throw std::runtime_error("Enter a finite number");
+        throw std::runtime_error("请输入有效的数字");
     return v;
 }
 int integer(HWND h, int low, int high) {
     auto v = real(h);
     if (v < low || v > high || std::floor(v) != v)
-        throw std::runtime_error("Integer outside displayed range");
+        throw std::runtime_error("整数超出显示的范围");
     return int(v);
 }
 std::uint32_t seedValue(HWND h) {
     auto text = field(h);
     std::size_t used{};
     if (text.empty() || text.front() == '-')
-        throw std::runtime_error("Seed: 1..4294967295");
+        throw std::runtime_error("随机种子需在 1–4294967295 之间");
     auto value = std::stoull(text, &used);
     if (!value || value > UINT32_MAX || text.find_first_not_of(" \t\r\n", used) != std::string::npos)
-        throw std::runtime_error("Seed: 1..4294967295");
+        throw std::runtime_error("随机种子需在 1–4294967295 之间");
     return std::uint32_t(value);
 }
 struct Parameter {
@@ -748,13 +748,13 @@ void App::barrageCommand(int id, int notification) {
                 if (wave.pattern == p)
                     uses += std::string(e.name.c_str()) + "\n";
         if (!uses.empty())
-            throw std::runtime_error("Pattern is used by emitters:\n" + uses);
+            throw std::runtime_error("以下发射器正在使用这个弹幕模式：\n" + uses);
         next.patterns.erase(next.patterns.begin() + pi);
     } else if (id == BarragePatternApply && pi >= 0) {
         auto& p = next.patterns[pi];
         auto name = field(controls[BarrageName]);
         if (name.empty() || name.size() >= 64)
-            throw std::runtime_error("Pattern name: 1..63 UTF-8 bytes");
+            throw std::runtime_error("模式名称需为 1–63 字节（UTF-8）");
         p.name.set(name);
         p.shape = BarrageShape(selection(BarrageShapeSelect));
         p.aim = BarrageAim(selection(BarrageAimSelect));
@@ -768,7 +768,7 @@ void App::barrageCommand(int id, int notification) {
         next.overflow = BulletOverflowPolicy(selection(BarrageOverflow));
     } else if (id == BarrageEmitterNew || id == BarrageEmitterCopy) {
         if (pi < 0)
-            throw std::runtime_error("Create a pattern first");
+            throw std::runtime_error("请先新建一个弹幕模式");
         BarrageEmitter e;
         if (id == BarrageEmitterCopy && ei >= 0)
             e = next.emitters[ei];
@@ -799,7 +799,7 @@ void App::barrageCommand(int id, int notification) {
             auto object = SendMessageW(controls[BarrageTargetObject], CB_GETITEMDATA,
                                        selection(BarrageTargetObject), 0);
             if (object == CB_ERR)
-                throw std::runtime_error("Select a target object");
+                throw std::runtime_error("请选择目标对象");
             e.targetObject = std::uint64_t(object);
             e.targetFaction = std::uint16_t(integer(controls[BarrageTargetFaction], 0, 65535));
             e.targetRange = real(controls[BarrageTargetRange]);
@@ -809,7 +809,7 @@ void App::barrageCommand(int id, int notification) {
         } else if (id == BarrageEmitterApply) {
             auto name = field(controls[BarrageEmitterName]);
             if (name.empty() || name.size() >= 64)
-                throw std::runtime_error("Emitter name: 1..63 UTF-8 bytes");
+                throw std::runtime_error("发射器名称需为 1–63 字节（UTF-8）");
             e.name.set(name);
             e.map = selection(BarrageMap);
             e.origin = BarrageOrigin(selection(BarrageOriginSelect));
@@ -830,7 +830,7 @@ void App::barrageCommand(int id, int notification) {
             ++wi;
         } else if (id == BarrageWaveDelete) {
             if (e.waves.size() == 1)
-                throw std::runtime_error("Keep at least one wave");
+                throw std::runtime_error("至少保留一个波次");
             e.waves.erase(e.waves.begin() + wi);
         } else if (id == BarrageWaveUp && wi > 0) {
             std::swap(e.waves[wi], e.waves[wi - 1]);
@@ -841,7 +841,7 @@ void App::barrageCommand(int id, int notification) {
         } else if (id == BarrageWaveApply) {
             auto index = selection(BarrageWavePattern);
             if (index < 0 || index >= int(next.patterns.size()))
-                throw std::runtime_error("Select a wave pattern");
+                throw std::runtime_error("请为波次选择弹幕模式");
             auto& wave = e.waves[wi];
             wave.pattern = next.patterns[index].id;
             wave.repeat = integer(controls[BarrageWaveRepeat], 1, 256);
@@ -866,7 +866,7 @@ void App::barrageCommand(int id, int notification) {
         SendMessageW(barrageTargetEditor, WM_CLOSE, 0, 0);
     barrageForm();
     resetBarragePreview();
-    message = "Barrage applied. F5 starts a new timeline.";
+    message = "弹幕已应用，F5 试玩将使用新时间线";
     refreshChrome();
 }
 } // namespace echo

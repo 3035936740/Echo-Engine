@@ -26,7 +26,7 @@ int readInt(HWND h) {
     long long value = std::stoll(s, &used);
     if (s.find_first_not_of(L" \t\r\n", used) != std::wstring::npos ||
         value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max())
-        throw std::runtime_error("Enter a signed 32-bit integer");
+        throw std::runtime_error("请输入 32 位整数");
     return int(value);
 }
 struct Form {
@@ -213,7 +213,7 @@ void App::databaseCommit(Database next, bool history) {
     refreshDataLabels();
     databaseCommand(DataCategory);
     refreshChrome();
-    message = "Database applied; fresh timeline. Ctrl+S saves project";
+    message = "数据库已应用（新时间线），Ctrl+S 保存工程";
 }
 void App::refreshDataLabels() {
     if (!eventEditor)
@@ -308,7 +308,7 @@ void App::databaseCommand(int id) {
         auto next = database;
         bool quest = dataCategory == 3;
         if ((quest ? next.quests.size() : next.items.size()) >= 64)
-            throw std::runtime_error("Database capacity is 64");
+            throw std::runtime_error("每类数据最多 64 条");
         auto fresh = allocateDataId(next, quest);
         if (quest) {
             QuestDefinition q;
@@ -345,7 +345,7 @@ void App::databaseCommand(int id) {
         return;
     auto name = readText(controls[DataName]), note = readText(controls[DataNote]);
     if (name.size() >= 64 || note.size() >= 256)
-        throw std::runtime_error("Name / note too long");
+        throw std::runtime_error("名称或备注过长");
     auto next = database;
     if (dataCategory < 2) {
         auto& v = dataCategory ? next.variables[dataSlot] : next.switches[dataSlot];
@@ -423,13 +423,13 @@ void App::mapToolsCommand(int id) {
     }
     if (id == MapCopy) {
         if (!editor.copySelection())
-            throw std::runtime_error("Select tiles with the area selection tool first");
-        message = "Tile selection copied";
+            throw std::runtime_error("请先用框选工具选中图块");
+        message = "已复制图块选区";
         return;
     }
     if (id == MapPaste) {
         if (!editor.pasteSelection(int(brushX / tileSize), int(brushY / tileSize)))
-            throw std::runtime_error("No copied tiles, locked layer, or paste extends outside the map");
+            throw std::runtime_error("没有已复制的图块、图层已锁定，或粘贴超出了地图范围");
     }
     if (id == MapClear)
         editor.clearSelection();
@@ -616,13 +616,13 @@ void App::debuggerCommand(int id) {
     }
     if (id == DebugWrite) {
         if (!debugPaused)
-            throw std::runtime_error("Pause the simulation before changing values");
+            throw std::runtime_error("请先暂停试玩再修改数值");
         int row = selection(DebugData), value = readInt(controls[DebugValue]);
         if (row < 0 || row >= 192 || (row < 128 && value != 0 && value != 1))
-            throw std::runtime_error("Invalid switch/variable value");
+            throw std::runtime_error("开关或变量的值无效");
         auto& w = simulation->world();
         if (w.state == TimeState::Fast || w.state == TimeState::Trace)
-            throw std::runtime_error("Finish rewind first");
+            throw std::runtime_error("请先结束回溯");
         if (row < 128)
             w.events.switches[row] = value != 0;
         else

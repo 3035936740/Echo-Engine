@@ -21,9 +21,9 @@ const WorldState& selectedState(App& a, int control) {
     if (source == 0)
         return a.simulation->world();
     if (source < 1 || source > 3)
-        throw std::runtime_error("Select a snapshot source");
+        throw std::runtime_error("请选择快照来源");
     if (!h.size())
-        throw std::runtime_error("History is empty; select the current world");
+        throw std::runtime_error("历史为空，请选择当前世界");
     int cursor = source == 2   ? 0
                  : source == 3 ? h.size() - 1
                                : int(SendMessageW(a.controls[DebugTimeline], TBM_GETPOS, 0, 0));
@@ -188,7 +188,7 @@ void App::snapshotCompareCommand(int id) {
     }
     if (id == SnapshotCompare) {
         if (!snapshotA)
-            throw std::runtime_error("Pin snapshot A first");
+            throw std::runtime_error("请先固定快照 A");
         *snapshotB = selectedState(*this, SnapshotSourceB);
         snapshotFilterText = readFilter(controls[SnapshotFilter]);
         compareSnapshots(*snapshotA, *snapshotB, *snapshotReport, snapshotFilterText);
@@ -230,7 +230,7 @@ void App::snapshotCompareCommand(int id) {
 }
 void App::exportSnapshotReport(const std::filesystem::path& path) {
     if (!snapshotA || !snapshotB || !snapshotReport)
-        throw std::runtime_error("Compare two snapshots before exporting");
+        throw std::runtime_error("请先比较两个快照再导出");
     std::ostringstream out;
     out << "# Echo Engine snapshot comparison\n# A tick=" << snapshotA->tick
         << " map=" << snapshotA->activeMap << " time=" << std::setprecision(17) << snapshotA->clock
@@ -242,6 +242,6 @@ void App::exportSnapshotReport(const std::filesystem::path& path) {
     for (const auto& e : snapshotReport->entries)
         out << e.field.c_str() << '\t' << e.before.c_str() << '\t' << e.after.c_str() << '\n';
     writeTextAtomically(path, out.str());
-    message = "Snapshot report exported";
+    message = "快照报告已导出";
 }
 } // namespace echo

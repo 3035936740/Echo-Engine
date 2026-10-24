@@ -21,7 +21,7 @@ float real(HWND h) {
     std::size_t used;
     float v = std::stof(s, &used);
     if (s.find_first_not_of(" \t\r\n", used) != std::string::npos || !std::isfinite(v))
-        throw std::runtime_error("Enter a finite number");
+        throw std::runtime_error("请输入有效的数字");
     return v;
 }
 int integer(HWND h, int lo, int hi) {
@@ -29,7 +29,7 @@ int integer(HWND h, int lo, int hi) {
     std::size_t used;
     long long v = std::stoll(s, &used);
     if (s.find_first_not_of(" \t\r\n", used) != std::string::npos || v < lo || v > hi)
-        throw std::runtime_error("Integer is outside the displayed range");
+        throw std::runtime_error("整数超出显示的范围");
     return int(v);
 }
 void platformControls(App& a) {
@@ -262,7 +262,7 @@ void App::objectCommand(int id, int notification) {
         command(Edit);
     if (id == ObjectNew || id == ObjectCopy) {
         if (objectLibrary.templates.size() >= 256)
-            throw std::runtime_error("Object template capacity is 256");
+            throw std::runtime_error("对象模板最多 256 个");
         auto id = allocateObjectTemplateId(objectLibrary);
         auto t = objectPreset(id, selection(ObjectPresetSelect));
         if (id == ObjectCopy && objectTemplateIndex >= 0 &&
@@ -293,7 +293,7 @@ void App::objectCommand(int id, int notification) {
             if (binding.templateId == objectLibrary.templates[objectTemplateIndex].id)
                 uses += "\nAnimation state bindings";
         if (!uses.empty())
-            throw std::runtime_error("Remove or reassign these instances before deleting the template:" +
+            throw std::runtime_error("删除模板前，请先移除这些实例或改用其他模板：" +
                                      uses);
         objectLibrary.templates.erase(objectLibrary.templates.begin() + objectTemplateIndex);
         objectTemplateIndex =
@@ -309,7 +309,7 @@ void App::objectCommand(int id, int notification) {
             return;
         editor.objectTemplate = objectLibrary.templates[objectTemplateIndex].id;
         editor.tool = 22;
-        message = "Object tool: left click / drag, right click delete";
+        message = "对象工具：左键放置 / 拖动，右键删除";
         SetFocus(canvas);
         return;
     }
@@ -328,9 +328,9 @@ void App::objectCommand(int id, int notification) {
         auto& t = next.templates[objectTemplateIndex];
         auto name = text(controls[ObjectName]), sprite = text(controls[ObjectSprite]);
         if (name.empty() || name.size() >= 64 || sprite.size() >= 256)
-            throw std::runtime_error("Object name or sprite reference is too long");
+            throw std::runtime_error("对象名称或图片引用过长");
         if (!sprite.empty() && !resources.contains(sprite))
-            throw std::runtime_error("Missing object sprite");
+            throw std::runtime_error("缺少对象图片");
         t.name.set(name);
         t.sprite.set(sprite);
         t.kind = ObjectKind(selection(ObjectKindSelect));
@@ -378,7 +378,7 @@ void App::objectCommand(int id, int notification) {
         }
         editor.dirty = true;
         objectForm();
-        message = "Object template applied";
+        message = "对象模板已应用";
         return;
     }
     if (id != ObjectInstanceApply && id != ObjectInherit && id != ObjectInstanceDelete)
@@ -395,9 +395,9 @@ void App::objectCommand(int id, int notification) {
         p.eventId = int(SendMessageW(controls[ObjectInstanceEvent], CB_GETITEMDATA,
                                      selection(ObjectInstanceEvent), 0));
         if (p.eventId && !findEvent(editor.events, p.eventId))
-            throw std::runtime_error("Create the target map event first");
+            throw std::runtime_error("请先创建目标地图事件");
         if (p.speed < 0 || p.speed > 10000)
-            throw std::runtime_error("Instance speed must be 0..10000");
+            throw std::runtime_error("实例速度需在 0–10000 之间");
         p.persistent = SendMessageW(controls[ObjectPersistent], BM_GETCHECK, 0, 0) == BST_CHECKED;
         p.overrides &= OverrideSize;
         if (SendMessageW(controls[ObjectOverrideSpeed], BM_GETCHECK, 0, 0) == BST_CHECKED)

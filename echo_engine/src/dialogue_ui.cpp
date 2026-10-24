@@ -38,7 +38,7 @@ int choicePanelHeight(const DialogueState& d, int scale) {
 }
 void checked(HRESULT h) {
     if (FAILED(h))
-        throw std::runtime_error("Portrait image decode failed");
+        throw std::runtime_error("头像图片解码失败");
 }
 } // namespace
 void App::dialogueUi() {
@@ -69,7 +69,7 @@ void App::dialogueUi() {
                                                    ? choicePanelHeight(w.dialogue, renderer.scale)
                                                    : 46 * renderer.scale;
     if (std::uint64_t(width) * height * 4 > 64ull * 1024 * 1024)
-        throw std::runtime_error("Dialogue raster exceeds visual memory budget");
+        throw std::runtime_error("对话框尺寸超出显示内存上限");
     SetWindowPos(dialogWindow, nullptr, 0, 0, width, height,
                  SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOREDRAW);
     BITMAPINFO info{};
@@ -81,11 +81,11 @@ void App::dialogueUi() {
     void* pixels{};
     HDC dc = CreateCompatibleDC(nullptr);
     if (!dc)
-        throw std::runtime_error("Dialogue raster DC unavailable");
+        throw std::runtime_error("对话框绘制设备不可用");
     HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
     if (!bitmap) {
         DeleteDC(dc);
-        throw std::runtime_error("Dialogue raster allocation failed");
+        throw std::runtime_error("对话框绘制内存分配失败");
     }
     auto old = SelectObject(dc, bitmap);
     try {
@@ -155,7 +155,7 @@ void App::paintDialogue(HWND h, HDC supplied) {
                     UINT width{}, height{};
                     checked(frame->GetSize(&width, &height));
                     if (width > 2048 || height > 2048)
-                        throw std::runtime_error("Portrait maximum size: 2048");
+                        throw std::runtime_error("头像最大 2048 像素");
                     Com<IWICFormatConverter> converter;
                     checked(factory->CreateFormatConverter(converter.address()));
                     checked(converter->Initialize(frame.p, GUID_WICPixelFormat32bppBGRA,
@@ -170,7 +170,7 @@ void App::paintDialogue(HWND h, HDC supplied) {
                     void* pixels{};
                     HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
                     if (!bitmap)
-                        throw std::runtime_error("Portrait allocation failed");
+                        throw std::runtime_error("头像内存分配失败");
                     checked(converter->CopyPixels(nullptr, width * 4, width * height * 4,
                                                   static_cast<BYTE*>(pixels)));
                     found = portraits.emplace(path, std::tuple{bitmap, int(width), int(height)}).first;
@@ -321,9 +321,9 @@ void App::dialogueCommand(int id) {
     auto speaker = utf8(value(controls[DialogSpeaker])),
          portrait = utf8(value(controls[DialogPortrait])), text = utf8(value(controls[DialogText]));
     if (speaker.size() >= 64 || portrait.size() >= 256 || text.size() >= 1024)
-        throw std::runtime_error("Dialogue exceeds fixed snapshot text budget");
+        throw std::runtime_error("对话文字超出长度上限");
     if (editor.selectedDialogue < 0 || editor.selectedDialogue >= int(editor.level.dialogues.count))
-        throw std::runtime_error("Select a dialogue region");
+        throw std::runtime_error("请先选中一个对话区域");
     editor.begin();
     auto& d = editor.level.dialogues[editor.selectedDialogue];
     d.speaker.set(speaker);
@@ -333,7 +333,7 @@ void App::dialogueCommand(int id) {
                 std::max(1.0f, number(DialogH))};
     editor.end();
     editor.dirty = true;
-    message = "Dialogue saved to level";
+    message = "对话已保存到地图";
     refreshChrome();
     ShowWindow(dialogEditor, SW_HIDE);
     SetFocus(canvas);

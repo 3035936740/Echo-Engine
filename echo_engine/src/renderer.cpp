@@ -1262,7 +1262,7 @@ void Renderer::draw(const WorldState& w, const CameraState& camera, bool editing
     p.BindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, p.width, p.height);
     if (editing)
-        glClearColor(editorDark ? .145f : .91f, editorDark ? .16f : .925f, editorDark ? .21f : .945f, 1);
+        glClearColor(editorBackdrop[0], editorBackdrop[1], editorBackdrop[2], 1);
     else
         glClearColor(.016f, .023f, .034f, 1);
     glClear(GL_COLOR_BUFFER_BIT);

@@ -37,7 +37,7 @@ template <class T> struct Com {
 };
 void checked(HRESULT h) {
     if (FAILED(h))
-        throw std::runtime_error("Thumbnail decode failed");
+        throw std::runtime_error("缩略图解码失败");
 }
 HBITMAP thumbnail(Resources& r, const AssetRecord& asset) {
     if (asset.kind != AssetKind::Image)
@@ -57,10 +57,10 @@ HBITMAP thumbnail(Resources& r, const AssetRecord& asset) {
         void* pixels{};
         auto bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
         if (!bitmap)
-            throw std::runtime_error("Thumbnail allocation failed");
+            throw std::runtime_error("缩略图内存分配失败");
         if (bytes.size() != 8 + std::uint64_t(asset.width) * asset.height * 4) {
             DeleteObject(bitmap);
-            throw std::runtime_error("Invalid RGBA image");
+            throw std::runtime_error("无效的 RGBA 图片");
         }
         auto* dst = static_cast<unsigned char*>(pixels);
         for (unsigned y = 0; y < height; ++y)
@@ -109,7 +109,7 @@ HBITMAP thumbnail(Resources& r, const AssetRecord& asset) {
     void* pixels{};
     auto bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
     if (!bitmap)
-        throw std::runtime_error("Thumbnail bitmap allocation failed");
+        throw std::runtime_error("缩略图位图分配失败");
     try {
         checked(
             converter->CopyPixels(nullptr, width * 4, width * height * 4, static_cast<BYTE*>(pixels)));
@@ -124,7 +124,7 @@ std::string App::importResource(const std::filesystem::path& path, std::string_v
                                 AssetKind kind) {
     auto metadata = probeAsset(path, std::string(folder) + "/" + pathUtf8(path.filename()));
     if (metadata.kind != kind)
-        throw std::runtime_error("Resource format does not match this field");
+        throw std::runtime_error("资源格式与该字段不匹配");
     auto e = importAsset(resources, assetLibrary, path, folder);
     return assetReference(e.id);
 }
@@ -309,7 +309,7 @@ void App::assetCommand(int id, int notification) {
         auto next = assetLibrary;
         auto name = field(controls[AssetName]), tags = field(controls[AssetTags]);
         if (name.empty() || name.size() > 255 || tags.size() > 1024)
-            throw std::runtime_error("Asset name or tags exceed limits");
+            throw std::runtime_error("资源名称或标签超出长度限制");
         int n = int(SendMessageW(controls[AssetList], LB_GETSELCOUNT, 0, 0));
         std::vector<int> indexes(std::max(0, n));
         SendMessageW(controls[AssetList], LB_GETSELITEMS, indexes.size(),
@@ -334,17 +334,17 @@ void App::assetCommand(int id, int notification) {
     if (id == AssetCopyID) {
         auto value = wide(assetReference(asset->id));
         if (!OpenClipboard(window))
-            throw std::runtime_error("Clipboard is busy");
+            throw std::runtime_error("剪贴板正被其他程序占用");
         auto block = GlobalAlloc(GMEM_MOVEABLE, (value.size() + 1) * sizeof(wchar_t));
         if (!block) {
             CloseClipboard();
-            throw std::runtime_error("Clipboard allocation failed");
+            throw std::runtime_error("剪贴板内存分配失败");
         }
         auto data = GlobalLock(block);
         if (!data) {
             GlobalFree(block);
             CloseClipboard();
-            throw std::runtime_error("Clipboard lock failed");
+            throw std::runtime_error("无法锁定剪贴板");
         }
         std::memcpy(data, value.c_str(), (value.size() + 1) * sizeof(wchar_t));
         GlobalUnlock(block);
@@ -386,6 +386,6 @@ void App::assetCommand(int id, int notification) {
     editing = true;
     selectedAsset = id == AssetDelete ? 0 : chosen;
     showAssetsEditor();
-    message = "Asset operation completed; project references reloaded";
+    message = "资源操作完成，工程引用已重新载入";
 }
 } // namespace echo

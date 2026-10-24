@@ -23,15 +23,15 @@ Recovery capture(App& a) {
 std::string readRecoveryFile(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f)
-        throw std::runtime_error("No recovery file; create a recovery point first");
+        throw std::runtime_error("没有恢复文件，请先创建恢复点");
     auto length = f.tellg();
     if (length < 0 || std::uint64_t(length) > recoveryBudget)
-        throw std::runtime_error("Recovery exceeds 32 MiB");
+        throw std::runtime_error("恢复文件超过 32 MiB");
     std::string value(static_cast<std::size_t>(length), '\0');
     f.seekg(0);
     f.read(value.data(), length);
     if (!f)
-        throw std::runtime_error("Cannot read recovery file");
+        throw std::runtime_error("无法读取恢复文件");
     return value;
 }
 } // namespace
@@ -44,13 +44,13 @@ void App::autosave() {
     auto resolved = std::filesystem::weakly_canonical(folder).lexically_relative(
         std::filesystem::weakly_canonical(resources.root));
     if (resolved.empty() || *resolved.begin() == "..")
-        throw std::runtime_error("Recovery directory escaped project");
+        throw std::runtime_error("恢复目录不在工程内");
     std::filesystem::create_directories(folder);
     auto latest = folder / "recovery-latest.echo";
     if (std::filesystem::exists(latest))
         writeTextAtomically(folder / "recovery-previous.echo", readRecoveryFile(latest));
     writeTextAtomically(latest, text);
-    message = "Recovery point saved";
+    message = "恢复点已保存";
 }
 void App::showProjectHealth() {
     command(Edit);
@@ -92,18 +92,18 @@ void App::healthCommand(int id) {
     }
     if (id == RecoveryRestore) {
         if (!editing)
-            throw std::runtime_error("Return to Edit before recovery");
+            throw std::runtime_error("请先返回编辑模式再恢复");
         auto restored = loadRecovery(readRecoveryFile(resources.root / ".echo/recovery-latest.echo"));
         validateRecovery(restored, resources);
         auto folder = std::filesystem::weakly_canonical(resources.root / ".echo");
         auto relative = folder.lexically_relative(std::filesystem::weakly_canonical(resources.root));
         if (relative.empty() || *relative.begin() == "..")
-            throw std::runtime_error("Recovery directory escaped project");
+            throw std::runtime_error("恢复目录不在工程内");
         Resources candidate = resources;
         candidate.setEditorOverlay(restored.files);
         for (const auto& issue : inspectProject(candidate))
             if (issue.error)
-                throw std::runtime_error("Recovery resource check failed: " + issue.location + " / " +
+                throw std::runtime_error("恢复资源校验失败：" + issue.location + " / " +
                                          issue.message);
         writeTextAtomically(folder / "recovery-before-restore.echo", saveRecovery(capture(*this)));
         resources.setEditorOverlay(restored.files);
@@ -120,7 +120,7 @@ void App::healthCommand(int id) {
         camera.update(*initial_, 0, true);
         renderer.environment = editor.level.background;
         SendMessageW(controls[Environment], CB_SETCURSEL, renderer.environment, 0);
-        message = "Recovery loaded into editor; save to commit";
+        message = "已载入恢复草稿，保存后生效";
         refreshChrome();
         return;
     }

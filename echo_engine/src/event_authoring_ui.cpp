@@ -18,7 +18,7 @@ void trim(std::vector<EventDefinition>& destination, std::vector<EventDefinition
         else if (!other.empty())
             other.erase(other.begin());
         else
-            throw std::runtime_error("Event draft exceeds 8 MiB undo budget");
+            throw std::runtime_error("事件草稿超过 8 MiB 撤销上限");
     }
 }
 std::string definition(const EventDefinition& event, bool common) {
@@ -161,7 +161,7 @@ void App::eventDraftCommit(std::vector<EventCommand> commands, int keep) {
     eventDraft = std::move(next);
     eventCollapsed.reset();
     eventRefreshCommands(keep);
-    message = "Event draft updated; Apply commits the authoring undo transaction";
+    message = "事件草稿已更新，点击「应用」提交（可撤销）";
 }
 void App::eventDraftHistory(bool undo) {
     auto& source = undo ? eventDraftUndo : eventDraftRedo;

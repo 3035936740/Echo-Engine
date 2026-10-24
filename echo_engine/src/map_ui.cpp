@@ -91,12 +91,12 @@ void App::mapCommand(int id) {
     }
     if (id == MapNew) {
         if (maps.size() >= 8)
-            throw std::runtime_error("Map capacity is 8 in this build");
+            throw std::runtime_error("当前版本最多 8 张地图");
         save();
         std::string name = "levels/map_" + std::to_string(maps.size() + 1) + ".echo";
         auto path = resources.root / name;
         if (std::filesystem::exists(path))
-            throw std::runtime_error("New map path already exists");
+            throw std::runtime_error("新地图的文件已存在");
         LevelState level;
         level.background = renderer.environment;
         for (int y = 20; y < mapHeight; ++y)
@@ -108,19 +108,20 @@ void App::mapCommand(int id) {
         config.maps.push_back(name);
         maps.push_back(level);
         eventMaps.push_back({});
-        for (int combo : {MapSelect, PortalTarget})
-            SendMessageW(controls[combo], CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(name).c_str()));
-        SendMessageW(controls[MapSelect], CB_SETCURSEL, maps.size() - 1, 0);
-        mapCommand(MapSelect);
+        if (mapEditor && IsWindow(mapEditor))
+            for (int combo : {MapSelect, PortalTarget})
+                SendMessageW(controls[combo], CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(name).c_str()));
+        // The dock's "+" creates maps without the settings window, so switch directly.
+        switchEditMap(int(maps.size()) - 1);
         save();
-        message = "New map created";
+        message = "已新建地图";
         return;
     }
     if (id == MapStart) {
         config.level = config.maps[editMap];
         editor.dirty = true;
         save();
-        message = "Start map selected";
+        message = "已设为起始地图";
         refreshWorkspace(true);
         refreshChrome();
         return;
@@ -138,7 +139,7 @@ void App::mapCommand(int id) {
     if (id == PortalApply) {
         int chosen = editor.selectedPortal;
         if (chosen < 0 || chosen >= int(editor.level.portals.count))
-            throw std::runtime_error("Draw or select a portal region on the canvas first");
+            throw std::runtime_error("请先在地图上绘制或选中一个传送区域");
         editor.begin();
         auto& p = editor.level.portals[chosen];
         p.targetMap = selection(PortalTarget);
@@ -146,7 +147,7 @@ void App::mapCommand(int id) {
         p.useSpawn = SendMessageW(controls[PortalSpawn], BM_GETCHECK, 0, 0) == BST_CHECKED;
         editor.end();
         editor.dirty = true;
-        message = "Portal settings applied";
+        message = "传送设置已应用";
         refreshChrome();
         return;
     }

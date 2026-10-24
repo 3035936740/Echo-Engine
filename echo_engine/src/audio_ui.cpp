@@ -94,7 +94,7 @@ void App::audioCommand(int id) {
             return;
         auto name = importResource(path, "audio", AssetKind::Audio);
         SetWindowTextW(controls[id == MusicImport ? MusicPath : SoundPath], wide(name).c_str());
-        message = "Audio imported; Apply to validate";
+        message = "音频已导入，点击「应用」完成校验";
         return;
     }
     auto apply = [&] {
@@ -113,7 +113,7 @@ void App::audioCommand(int id) {
         audio.configure(*initial_, config);
         previewAudio = false;
         save();
-        message = "Audio settings saved";
+        message = "音频设置已保存";
         refreshChrome();
     };
     if (id == AudioApply) {
@@ -129,7 +129,7 @@ void App::audioCommand(int id) {
         else {
             stopMusic(*audioPreview);
             if (!playSound(*audioPreview, selectedAudioSlot))
-                throw std::runtime_error("Choose a nonempty SE slot first");
+                throw std::runtime_error("请先选择一个已设置音效的 SE 槽位");
         }
         previewAudio = true;
         audio.pause(false);

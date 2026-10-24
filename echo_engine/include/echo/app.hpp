@@ -7,6 +7,8 @@
 #include "script.hpp"
 #include "barrage.hpp"
 #include "snapshot_diff.hpp"
+#include "ui.hpp"
+#include "workspace_view.hpp"
 #include <map>
 #include <string>
 #include <tuple>
@@ -595,9 +597,23 @@ enum Command {
 class App {
   public:
     HINSTANCE instance{};
-    HWND workspace{}, mapTree{}, workspaceItems{}, workspaceTip{}, tooltips{};
-    bool refreshingWorkspace{}, splittingWorkspace{};
-    int workspaceMode{}, workspaceWidth = 272;
+    HWND tooltips{}; // native tooltips for the remaining dialog controls
+    bool refreshingWorkspace{}, splittingWorkspace{}, chromeTracking{};
+    int workspaceMode{}, workspaceWidth = 272, openMenu = -1;
+    // Main window chrome is drawn by echo::ui (workspace_view.cpp); only the canvas is a child window.
+    float uiScale = 1;
+    ui::Fonts uiFonts;
+    ui::View chrome;
+    ui::Painter chromeSurface;
+    ui::Tooltip chromeTip;
+    WorkspaceLayout chromeLayout{};
+    std::wstring statusText;
+    std::vector<int> dockItems; // dock row -> event / template / emitter / feature index
+    bool inspectorOpen{};       // drawn scene-settings panel
+    ui::Key sliderDrag{};
+    float sliderDragValue{};
+    std::vector<Property> sceneProperties();
+    void applyProperty(int id, float value = 0);
     HWND window{}, canvas{}, status{}, side{}, dialogWindow{}, dialogEditor{}, audioEditor{},
         mapEditor{}, layerEditor{}, eventEditor{}, tilePalette{}, transitionEditor{}, databaseEditor{},
         mapToolsEditor{}, debuggerEditor{}, healthEditor{}, objectsEditor{}, assetsEditor{},
@@ -708,6 +724,13 @@ class App {
     void setNumber(int, float);
     std::filesystem::path choose(bool, const wchar_t*, const wchar_t*, const wchar_t*);
     void themeControl(HWND, int, const wchar_t*);
+    void themeNativeControl(HWND);
+    void applyTitleBarTheme(HWND) const;
+    bool dialogKey(const MSG&);
+    std::vector<RECT> cardRects(HWND) const;
+    bool onCard(HWND control) const;
+    ui::Color surfaceBehind(HWND control) const;
+    void drawFieldFrame(HWND);
     void drawControl(const DRAWITEMSTRUCT&);
     LRESULT colorControl(HDC, HWND);
     void paintChrome(HWND, HDC dc = nullptr);
@@ -731,7 +754,16 @@ class App {
     void initWorkspace();
     void refreshWorkspace(bool mapsChanged = false);
     void workspaceCommand(int, int);
-    LRESULT workspaceNotify(LPARAM);
+    WorkspaceModel workspaceModel();
+    void paintWorkspace(HDC, const RECT* area = nullptr);
+    bool workspaceMouse(UINT, WPARAM, LPARAM, LRESULT&);
+    bool workspaceWheel(POINT screen, int delta);
+    void workspaceAction(int action, int value, bool doubleClick = false);
+    std::vector<ui::MenuItem> workspaceMenu(int index);
+    void openWorkspaceMenu(int index, bool keyboard = false);
+    void selectDockItem(int row, bool open);
+    void setEditLayer(int);
+    void setStatusText(const std::wstring&);
     void switchEditMap(int);
     void showSceneInspector();
     void saveWorkspaceSettings();
@@ -818,4 +850,6 @@ class App {
     void captureUi(const std::filesystem::path&, HWND target = nullptr);
     void verify(const std::filesystem::path&);
 };
+// Developer screenshots of every window (`--ui-tour <folder>`, ui_tour.cpp).
+void runUiTour(App&, const std::filesystem::path&);
 } // namespace echo

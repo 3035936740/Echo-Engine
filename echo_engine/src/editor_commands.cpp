@@ -89,7 +89,7 @@ void App::loadProject(HistoryClearReason reason) {
                                                           : EventMap{});
         for (const auto& placed : maps.back().events)
             if (!findEvent(eventMaps.back(), placed.id))
-                throw std::runtime_error("Map references a missing event definition");
+                throw std::runtime_error("地图引用了不存在的事件定义");
     }
     *initial_ = makeWorld();
     applyDatabaseDefaults(*initial_, database);
@@ -129,14 +129,14 @@ void App::loadProject(HistoryClearReason reason) {
             initial_->rewind.record_hz = std::stoi(value);
         if (key == "rewind_fast_stop_near_bullets") {
             if (value != "0" && value != "1")
-                throw std::runtime_error("rewind_fast_stop_near_bullets must be 0/1");
+                throw std::runtime_error("rewind_fast_stop_near_bullets 只能是 0 或 1");
             initial_->rewind.fast_stop_near_bullets = value == "1";
         }
         if (key == "rewind_fast_bullet_margin") {
             std::size_t used{};
             initial_->rewind.fast_bullet_margin = std::stof(value, &used);
             if (value.find_first_not_of(" \t", used) != std::string::npos)
-                throw std::runtime_error("Invalid rewind_fast_bullet_margin");
+                throw std::runtime_error("rewind_fast_bullet_margin 数值无效");
         }
         if (key == "rewind_enabled")
             initial_->rewind.enabled = std::stoi(value) != 0;
@@ -149,10 +149,10 @@ void App::loadProject(HistoryClearReason reason) {
     portraits.clear();
     if (initial_->rewind.record_hz != 30 && initial_->rewind.record_hz != 60 &&
         initial_->rewind.record_hz != 120)
-        throw std::runtime_error("record_hz must be 30/60/120");
+        throw std::runtime_error("record_hz 只能是 30 / 60 / 120");
     if (!std::isfinite(initial_->rewind.fast_bullet_margin) || initial_->rewind.fast_bullet_margin < 0 ||
         initial_->rewind.fast_bullet_margin > 64)
-        throw std::runtime_error("fast_bullet_margin must be 0..64 logical pixels");
+        throw std::runtime_error("fast_bullet_margin 需在 0–64 逻辑像素之间");
     simulation = std::make_unique<Simulation>(config.historyBudgetMB * 1024 * 1024);
     simulation->setHooks(scripts.get());
     simulation->setObjects(objectLibrary);
@@ -218,7 +218,7 @@ void App::save() {
     commitProjectFiles(resources.root, files);
     resources.clearEditorOverlay();
     editor.dirty = false;
-    message = "Project saved";
+    message = "工程已保存";
 }
 std::string App::projectText() {
     std::string mapNames;
@@ -388,7 +388,7 @@ void App::command(int id, int notification) {
         debugMuteMusic = !debugMuteMusic;
         updateAudioOutputPolicy();
         saveWorkspaceSettings();
-        message = debugMuteMusic ? "Debug BGM muted; SE remain enabled" : "Debug BGM enabled";
+        message = debugMuteMusic ? "调试时已静音 BGM（音效保留）" : "调试时已开启 BGM";
         refreshChrome();
         return;
     }
@@ -404,7 +404,7 @@ void App::command(int id, int notification) {
             SendMessageW(controls[RenderAA], CB_SETCURSEL, 0, 0);
         }
         editor.dirty = true;
-        message = "Pixel preset: nearest textures + integer nearest canvas + AA off + crisp camera";
+        message = "已应用像素清晰预设：最近邻纹理、整数倍画布、关闭抗锯齿、镜头像素吸附";
         refreshChrome();
         return;
     }
@@ -513,14 +513,14 @@ void App::command(int id, int notification) {
         editor.emitterPlacementArmed = false;
         editor.tool = id;
         editing = true;
-        message = "Tool " + std::to_string(id);
+        message.clear();
         refreshWorkspace();
         refreshChrome();
         SetFocus(canvas);
         return;
     }
     if ((id == Environment || id == Weather || id == Strength || id == Snap || id == Layer ||
-         id == TileIndex || id == JumpPreset || id == BulletPreset || id == ThemeMode) &&
+         id == TileIndex || id == JumpPreset || id == BulletPreset) &&
         notification != CBN_SELCHANGE)
         return;
     if (id >= AudioEditor && id <= SoundPreview) {
@@ -533,11 +533,6 @@ void App::command(int id, int notification) {
     }
     if (id >= MapsEditor && id <= PortalApply) {
         mapCommand(id);
-        return;
-    }
-    if (id == ThemeMode) {
-        setTheme(selection(id) == 1);
-        saveWorkspaceSettings();
         return;
     }
     if (id == DialogEditor || id == DialogApply || id == DialogImport) {
@@ -593,7 +588,7 @@ void App::command(int id, int notification) {
             renderer.setResources(&resources);
             loadTileAtlas();
             refreshWorkspace();
-            message = "Tile atlas imported";
+            message = "图块图集已导入";
         }
     } else if (id == Fog || id == Wind) {
         if (notification != EN_KILLFOCUS)
@@ -628,7 +623,7 @@ void App::command(int id, int notification) {
         simulation->reset(*initial_, HistoryClearReason::Play);
         editing = false;
         camera.update(simulation->world(), 0, true);
-        message = "Play";
+        message.clear();
         SetFocus(canvas);
     } else if (id == Edit) {
         debugPaused = false;
@@ -636,7 +631,7 @@ void App::command(int id, int notification) {
         renderer.debugCollisions = false;
         previewAudio = false;
         editing = true;
-        message = "Edit";
+        message.clear();
         audio.pause(true);
     } else if (id == Save)
         save();
@@ -651,7 +646,7 @@ void App::command(int id, int notification) {
         else
             editor.redo();
         refreshAuthoringHistory();
-        message = id == Undo ? "Undo map / events / barrage" : "Redo map / events / barrage";
+        message = id == Undo ? "已撤销" : "已重做";
     } else if (id == Environment) {
         renderer.environment = selection(id);
         editor.level.background = renderer.environment;
@@ -681,7 +676,7 @@ void App::command(int id, int notification) {
         renderer.fog = std::clamp(number(Fog), 0.0f, 1.0f);
         renderer.wind = std::clamp(number(Wind), -3.0f, 3.0f);
         editor.dirty = true;
-        message = "Parameters applied";
+        message = "场景参数已应用";
     } else if (id == PlatformApply) {
         if (editor.selectedPlatform >= 0 &&
             editor.selectedPlatform < int(editor.level.platforms.count)) {
@@ -706,7 +701,7 @@ void App::command(int id, int notification) {
                 throw;
             }
             editing = true;
-            message = "Project opened";
+            message = "工程已打开";
         }
     } else if (id == New) {
         auto path =
@@ -716,9 +711,9 @@ void App::command(int id, int notification) {
                  original = std::filesystem::weakly_canonical(resources.root);
             auto relation = target.lexically_relative(original);
             if (!relation.empty() && *relation.begin() != "..")
-                throw std::runtime_error("Create new project outside the template folder");
+                throw std::runtime_error("新工程不能建在模板工程文件夹内");
             if (std::filesystem::exists(target / "project.echo"))
-                throw std::runtime_error("Choose a new project folder");
+                throw std::runtime_error("请选择一个新的工程文件夹");
             save();
             std::filesystem::create_directories(target);
             for (auto& entry : std::filesystem::recursive_directory_iterator(original)) {
@@ -734,7 +729,7 @@ void App::command(int id, int notification) {
             resources.root = target;
             loadProject();
             editing = true;
-            message = "New project created from current template";
+            message = "已以当前工程为模板新建工程";
         }
     } else if (id == ExportPublic || id == ExportEncrypted) {
         save();
@@ -745,13 +740,13 @@ void App::command(int id, int notification) {
             resources.exportGame(executable, output, id == ExportEncrypted);
             if (executable.filename() != path.filename())
                 std::filesystem::rename(output / executable.filename(), output / path.filename());
-            message = "Exported: " + pathUtf8(output);
+            message = "已导出：" + pathUtf8(output);
             MessageBoxW(window, wide(message).c_str(), L"Echo Engine", MB_OK);
         }
     } else if (id == Reload) {
         save();
         loadProject(HistoryClearReason::ScriptReload);
-        message = "Scripts reloaded";
+        message = "资源与脚本已重载";
     } else if (id == CustomShader) {
         auto path = choose(false, L"GLSL Fragment\0*.frag;*.glsl\0\0", L"导入自定义背景 GLSL", L"frag");
         if (!path.empty()) {
@@ -761,7 +756,7 @@ void App::command(int id, int notification) {
             config.backgroundShader = importResource(path, "shaders", AssetKind::Shader);
             save();
             renderer.setResources(&resources);
-            message = "Custom background loaded";
+            message = "自定义背景着色器已加载";
         }
     } else if (id == Stress) {
         stress = !stress;
@@ -781,7 +776,7 @@ void App::command(int id, int notification) {
             }
         }
         editing = false;
-        message = stress ? "2048-bullet stress scene" : "Stress ended";
+        message = stress ? "弹幕压力测试：2048 发" : "压力测试已结束";
     }
     refreshChrome();
     if (id != LightRadius && id != LightIntensity && id != WindowSeconds && id != PlatformAmplitude &&

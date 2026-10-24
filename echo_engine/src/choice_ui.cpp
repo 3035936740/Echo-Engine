@@ -125,7 +125,7 @@ void App::choiceRead() {
     auto next = eventChoiceDraft.at(choiceIndex);
     auto label = choiceText(controls[ChoiceLabel]), source = choiceText(controls[ChoiceLua]);
     if (label.empty() || label.size() >= 128 || source.size() >= 1024)
-        throw std::runtime_error("Choice label/source exceeds fixed text budget");
+        throw std::runtime_error("选项文字或脚本超出长度上限");
     next.label.set(label);
     next.script.set(source);
     next.condition = ChoiceCondition(selection(ChoiceConditionType));
@@ -159,7 +159,7 @@ void App::choiceCommand(int id, int notification) {
         auto& o = eventChoiceDraft.at(choiceIndex);
         auto label = choiceText(controls[ChoiceLabel]), source = choiceText(controls[ChoiceLua]);
         if (label.empty() || label.size() >= 128 || source.size() >= 1024)
-            throw std::runtime_error("Choice text exceeds budget");
+            throw std::runtime_error("选项文字超出长度上限");
         o.label.set(label);
         o.script.set(source);
         o.hideUnavailable = SendMessageW(controls[ChoiceHide], BM_GETCHECK, 0, 0) != 0;
@@ -187,7 +187,7 @@ void App::choiceCommand(int id, int notification) {
     if (id == ChoiceNew) {
         choiceRead();
         if (eventChoiceDraft.size() >= 6)
-            throw std::runtime_error("Choice capacity is 6");
+            throw std::runtime_error("最多 6 个选项");
         ChoiceDefinition o;
         o.label.set("New choice");
         eventChoiceDraft.push_back(o);
@@ -197,7 +197,7 @@ void App::choiceCommand(int id, int notification) {
     }
     if (id == ChoiceDelete) {
         if (eventChoiceDraft.size() <= 1)
-            throw std::runtime_error("Keep at least one choice");
+            throw std::runtime_error("至少保留一个选项");
         eventChoiceDraft.erase(eventChoiceDraft.begin() + choiceIndex);
         choiceIndex = std::min(choiceIndex, int(eventChoiceDraft.size()) - 1);
         choiceForm();

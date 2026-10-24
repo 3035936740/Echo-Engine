@@ -221,7 +221,7 @@ void App::mobilityCommand(int id, int notification) {
         initial_->mobility = config.mobility = candidate;
         simulation->reset(*initial_, HistoryClearReason::MobilitySettings);
         editor.dirty = true;
-        message = "Mobility saved to project settings; F5 starts a fresh timeline";
+        message = "平台动作已保存到工程设置，F5 试玩将使用新时间线";
         refreshChrome();
         return;
     }

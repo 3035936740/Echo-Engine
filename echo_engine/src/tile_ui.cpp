@@ -18,7 +18,7 @@ template <class T> struct Ref {
 };
 void ok(HRESULT hr) {
     if (FAILED(hr))
-        throw std::runtime_error("Tile palette image decode failed");
+        throw std::runtime_error("图块调色板图片解码失败");
 }
 } // namespace
 void App::loadTileAtlas() {
@@ -44,7 +44,7 @@ void App::loadTileAtlas() {
     UINT width{}, height{};
     ok(frame->GetSize(&width, &height));
     if (!width || !height || width > 2048 || height > 2048)
-        throw std::runtime_error("Palette atlas maximum is 2048 x 2048");
+        throw std::runtime_error("图块图集最大 2048 × 2048");
     ok(factory->CreateFormatConverter(converter.out()));
     ok(converter->Initialize(frame.p, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0,
                              WICBitmapPaletteTypeCustom));
@@ -59,7 +59,7 @@ void App::loadTileAtlas() {
     tileAtlas = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
     ReleaseDC(window, dc);
     if (!tileAtlas)
-        throw std::runtime_error("Tile palette bitmap allocation failed");
+        throw std::runtime_error("图块调色板位图分配失败");
     HRESULT copied =
         converter->CopyPixels(nullptr, width * 4, width * height * 4, static_cast<BYTE*>(pixels));
     if (FAILED(copied)) {

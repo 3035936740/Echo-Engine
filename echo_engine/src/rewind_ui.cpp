@@ -39,11 +39,11 @@ void App::rewindRulesCommand(int id) {
         candidate.fast_bullet_margin = number(RewindMargin);
         if (!std::isfinite(candidate.fast_bullet_margin) || candidate.fast_bullet_margin < 0 ||
             candidate.fast_bullet_margin > 64)
-            throw std::runtime_error("Margin must be 0..64 logical pixels");
+            throw std::runtime_error("边距需在 0–64 逻辑像素之间");
         simulation->configureRewind(candidate);
         initial_->rewind = simulation->world().rewind;
         editor.dirty = true;
-        message = "Fast rewind proximity rules applied; save project to persist";
+        message = "快速回溯规则已应用，保存工程后保留";
         refreshChrome();
     }
 }

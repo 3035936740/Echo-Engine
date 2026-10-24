@@ -439,47 +439,88 @@ void App::verify(const std::filesystem::path& output) {
     camera.update(*initial_, 0, true);
     renderer.fluid = false;
     renderer.raymarch = false;
-    SendMessageW(controls[ThemeMode], CB_SETCURSEL, 0, 0);
-    command(ThemeMode, CBN_SELCHANGE);
+    // Drawn chrome: press and release over a node's centre, exactly like a user click.
+    auto click = [&](WorkspaceAction action, int value) {
+        const auto* node = chrome.find(int(action), value);
+        check(node != nullptr, "drawn chrome control exists");
+        auto box = chrome.screenBox(*node);
+        auto at = MAKELPARAM(box.x + box.w / 2, box.y + box.h / 2);
+        SendMessageW(window, WM_MOUSEMOVE, 0, at);
+        SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, at);
+        SendMessageW(window, WM_LBUTTONUP, 0, at);
+    };
+    command(WorkspaceLightTheme);
     render();
     captureUi(output / "editor-light.bmp");
-    SendMessageW(controls[ThemeMode], CB_SETCURSEL, 1, 0);
-    command(ThemeMode, CBN_SELCHANGE);
+    click(WorkspaceAction::Theme, 0);
     render();
     captureUi(output / "editor-dark.bmp");
-    check(darkTheme, "native theme selection");
-    SendMessageW(controls[ThemeMode], CB_SETCURSEL, 0, 0);
-    command(ThemeMode, CBN_SELCHANGE);
+    check(darkTheme, "drawn toolbar theme toggle");
+    click(WorkspaceAction::Theme, 0);
+    check(!darkTheme, "drawn toolbar theme toggle back");
     RECT original;
     GetWindowRect(window, &original);
     SetWindowPos(window, nullptr, 0, 0, 1280, 760, SWP_NOMOVE | SWP_NOZORDER);
     layout();
     RECT client;
     GetClientRect(window, &client);
-    check(workspace && mapTree && tileAtlas, "persistent workspace and atlas");
+    check(!chrome.nodes.empty() && tileAtlas, "persistent workspace and atlas");
     check((GetWindowLongPtrW(side, GWL_STYLE) & WS_VISIBLE) == 0, "advanced inspector initially hidden");
     captureUi(output / "scene-settings.bmp", side);
     SendMessageW(side, WM_CLOSE, 0, 0);
     check(IsWindow(side), "closing settings retains reusable controls");
-    check(GetParent(controls[Layer]) == workspace && GetParent(controls[1]) == window,
-          "common tools and layer controls have dedicated locations");
-    for (int id : std::vector<int>{ThemeMode, 1, 17, WorkspaceObjects, WorkspaceBarrage, WorkspacePencil,
-                                   WorkspacePick, WorkspaceInspector, Edit, Play}) {
-        RECT r{};
-        GetWindowRect(controls[id], &r);
-        POINT p{r.right, r.bottom};
-        ScreenToClient(window, &p);
-        check(p.x <= client.right && p.y < canvasTop, "compact single toolbar fits window");
+    command(WorkspaceInspector);
+    check(inspectorOpen && chrome.find(int(WorkspaceAction::Property), Fog), "drawn scene settings panel");
+    {
+        float fogBefore = renderer.fog;
+        const auto* fog = chrome.find(int(WorkspaceAction::Property), Fog);
+        auto track = ui::sliderTrack(chrome.screenBox(*fog), uiScale);
+        int y = track.y + track.h / 2;
+        SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(track.x, y));
+        SendMessageW(window, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(track.right() + 20, y));
+        SendMessageW(window, WM_LBUTTONUP, 0, MAKELPARAM(track.right() + 20, y));
+        check(std::abs(renderer.fog - 1) < 1e-4f && !sliderDrag.action, "panel slider drag applies fog");
+        applyProperty(Fog, fogBefore);
+        bool sunBefore = renderer.sunlight;
+        click(WorkspaceAction::Property, Sunlight);
+        check(renderer.sunlight != sunBefore, "panel toggle applies sunlight");
+        applyProperty(Sunlight);
+        check(renderer.sunlight == sunBefore, "panel toggle restores sunlight");
     }
-    RECT dock{}, view{};
-    GetWindowRect(workspace, &dock);
+    click(WorkspaceAction::CloseInspector, 0);
+    check(!inspectorOpen, "panel closes");
+    check(chrome.find(int(WorkspaceAction::Layer), 1) && chrome.find(int(WorkspaceAction::Mode), 0) &&
+              !IsWindowVisible(controls[Layer]) && !IsWindowVisible(controls[1]),
+          "common tools and layer controls have dedicated locations");
+    for (auto [action, value] : std::vector<std::pair<WorkspaceAction, int>>{
+             {WorkspaceAction::Mode, 0},
+             {WorkspaceAction::Mode, 1},
+             {WorkspaceAction::Mode, 2},
+             {WorkspaceAction::Mode, 3},
+             {WorkspaceAction::Mode, 4},
+             {WorkspaceAction::Tool, 0},
+             {WorkspaceAction::Tool, 4},
+             {WorkspaceAction::Settings, 0},
+             {WorkspaceAction::Theme, 0},
+             {WorkspaceAction::Run, 0}}) {
+        const auto* node = chrome.find(int(action), value);
+        check(node && node->box.right() <= client.right && node->box.bottom() <= canvasTop,
+              "compact single toolbar fits window");
+    }
+    RECT view{};
     GetWindowRect(canvas, &view);
-    check(dock.right <= view.left && view.right <= original.right,
+    POINT viewOrigin{view.left, view.top};
+    ScreenToClient(window, &viewOrigin);
+    check(chromeLayout.dock.right() <= viewOrigin.x && view.right <= original.right,
           "left dock and central canvas do not overlap");
-    command(WorkspaceRectangle);
+    click(WorkspaceAction::Tool, 1);
     check(editor.tool == 18, "toolbar rectangle tool");
-    command(WorkspaceTileFirst + 5);
+    click(WorkspaceAction::Tile, 5);
     check(editor.tileIndex == 6 && editor.tool == 18, "dock tile preserves rectangle mode");
+    click(WorkspaceAction::Layer, 0);
+    check(editor.layer == 0, "dock layer segment");
+    click(WorkspaceAction::Layer, 1);
+    check(editor.layer == 1, "dock layer segment back to world");
     auto previousTile = editor.level.layers[editor.layer].cells[10 * mapWidth + 14];
     auto toCanvas = [&](float x, float y) {
         int px =
@@ -498,43 +539,40 @@ void App::verify(const std::filesystem::path& output) {
     check(editor.level.layers[editor.layer].cells[10 * mapWidth + 14] == previousTile,
           "mouse rectangle is one undo entry");
 
-    command(WorkspaceBucket);
+    click(WorkspaceAction::Tool, 2);
     check(editor.tool == 19, "toolbar bucket");
-    command(WorkspaceSelection);
+    click(WorkspaceAction::Tool, 3);
     check(editor.tool == 20, "toolbar selection");
-    command(WorkspacePick);
+    click(WorkspaceAction::Tool, 4);
     check(editor.tool == 21, "toolbar eyedropper");
-    command(WorkspacePencil);
+    click(WorkspaceAction::Tool, 0);
     check(editor.tool == int(editor.terrain), "toolbar pencil");
-    command(WorkspaceObjects);
-    check(editor.tool == 22 &&
-              SendMessageW(workspaceItems, LB_GETCOUNT, 0, 0) == LRESULT(objectLibrary.templates.size()),
-          "object templates in dock");
+    click(WorkspaceAction::Mode, 2);
+    check(editor.tool == 22 && dockItems.size() == objectLibrary.templates.size(), "object templates in dock");
     if (!objectLibrary.templates.empty()) {
-        SendMessageW(workspaceItems, LB_SETCURSEL, 0, 0);
-        SendMessageW(workspace, WM_COMMAND, MAKEWPARAM(WorkspaceItems, LBN_SELCHANGE),
-                     reinterpret_cast<LPARAM>(workspaceItems));
+        click(WorkspaceAction::Item, 0);
         check(editor.objectTemplate == objectLibrary.templates.front().id,
               "dock selects object template");
     }
     command(1);
     auto beforeWorkspace = std::make_unique<WorldState>(simulation->world());
     bool wasDirty = editor.dirty;
-    SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(workspaceWidth + 2, 150));
-    SendMessageW(window, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(332, 150));
-    SendMessageW(window, WM_LBUTTONUP, 0, MAKELPARAM(332, 150));
-    check(workspaceWidth == 332 && !splittingWorkspace, "workspace splitter drag");
+    int dragged = ui::dp(332, uiScale);
+    SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(workspaceWidth + 2, chromeLayout.dock.y + 72));
+    SendMessageW(window, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(dragged, chromeLayout.dock.y + 72));
+    SendMessageW(window, WM_LBUTTONUP, 0, MAKELPARAM(dragged, chromeLayout.dock.y + 72));
+    check(workspaceWidth == dragged && !splittingWorkspace, "workspace splitter drag");
     command(WorkspaceDarkTheme);
-    workspaceWidth = 272;
+    workspaceWidth = ui::dp(272, uiScale);
     editorGrid = false;
     loadWorkspaceSettings();
-    check(workspaceWidth == 332 && darkTheme && editorGrid, "workspace preferences restore");
+    check(workspaceWidth == dragged && darkTheme && editorGrid, "workspace preferences restore");
     check(editor.dirty == wasDirty &&
               std::memcmp(beforeWorkspace.get(), &simulation->world(), sizeof(WorldState)) == 0,
           "workspace preferences do not change gameplay or dirty state");
     writeTextAtomically(resources.root / ".echo/workspace.echo", "ECHO_WORKSPACE_999 332 1 1 1");
     loadWorkspaceSettings();
-    check(workspaceWidth == 272 && !darkTheme && editorGrid, "invalid workspace version defaults");
+    check(workspaceWidth == ui::dp(272, uiScale) && !darkTheme && editorGrid, "invalid workspace version defaults");
     command(WorkspaceReset);
     check(debugMuteMusic, "Debug BGM muted by default");
     updateAudioOutputPolicy();
@@ -571,7 +609,7 @@ void App::verify(const std::filesystem::path& output) {
           "Output mute never changes gameplay snapshots or project dirty state");
     writeTextAtomically(resources.root / ".echo/workspace.echo", "ECHO_WORKSPACE_1 300 0 1 1");
     loadWorkspaceSettings();
-    check(workspaceWidth == 300 && debugMuteMusic, "Legacy workspace migrates to default BGM mute");
+    check(workspaceWidth == ui::dp(300, uiScale) && debugMuteMusic, "Legacy workspace migrates to default BGM mute");
     command(WorkspaceReset);
     command(WorkspaceGrid);
     check(!editorGrid, "workspace grid off");
@@ -606,12 +644,9 @@ void App::verify(const std::filesystem::path& output) {
     showMapEditor();
     check(mapEditor && IsWindow(mapEditor), "map settings window");
     if (maps.size() > 1) {
-        auto root = TreeView_GetRoot(mapTree);
-        auto first = TreeView_GetChild(mapTree, root);
-        auto second = TreeView_GetNextSibling(mapTree, first);
-        check(second != nullptr, "map tree has second map");
-        TreeView_SelectItem(mapTree, second);
-        check(editMap == 1 && initial_->activeMap == 1, "map tree switch");
+        check(chrome.find(int(WorkspaceAction::MapRow), 1) != nullptr, "map list has second map");
+        click(WorkspaceAction::MapRow, 1);
+        check(editMap == 1 && initial_->activeMap == 1, "map list switch");
         check(selection(MapSelect) == 1, "map dialog follows tree selection");
         SendMessageW(controls[MapSelect], CB_SETCURSEL, 0, 0);
         command(MapSelect, CBN_SELCHANGE);
@@ -631,7 +666,7 @@ void App::verify(const std::filesystem::path& output) {
     editor.end();
     check(editor.selectedEvent >= 0, "native map event placement");
     refreshWorkspace();
-    check(SendMessageW(workspaceItems, LB_GETCOUNT, 0, 0) == editor.level.events.count,
+    check(dockItems.size() == editor.level.events.count,
           "dock lists deployed map events");
     render();
     captureUi(output / "workspace-events.bmp");

@@ -112,7 +112,7 @@ TransitionConfig App::readTransitionForm() {
     c.color = {number(TransitionRed), number(TransitionGreen), number(TransitionBlue)};
     validateTransition(c);
     if (c.kind == TransitionKind::Custom && config.transitionShader.empty())
-        throw std::runtime_error("Import a custom transition GLSL function first");
+        throw std::runtime_error("请先导入自定义转场 GLSL 函数");
     return c;
 }
 void App::transitionCommand(int id) {
@@ -131,7 +131,7 @@ void App::transitionCommand(int id) {
         if (path.empty())
             return;
         if (std::filesystem::file_size(path) > 256 * 1024)
-            throw std::runtime_error("Transition shader source limit: 256 KiB");
+            throw std::runtime_error("转场着色器源码不能超过 256 KiB");
         std::ifstream input(path);
         std::string source((std::istreambuf_iterator<char>(input)), {});
         // Compile first; errors keep the working shader and project path intact.
@@ -139,7 +139,7 @@ void App::transitionCommand(int id) {
         config.transitionShader = importResource(path, "shaders", AssetKind::Shader);
         SetWindowTextW(controls[TransitionShaderPath], wide(config.transitionShader).c_str());
         editor.dirty = true;
-        message = "Custom transition mask imported";
+        message = "自定义转场遮罩已导入";
         return;
     }
     if (id == TransitionPreview) {
@@ -153,11 +153,11 @@ void App::transitionCommand(int id) {
         auto c = readTransitionForm();
         if (transitionScope == 2) {
             if (transitionPortal < 0 || transitionPortal >= int(editor.level.portals.count))
-                throw std::runtime_error("Select a portal before opening transition settings");
+                throw std::runtime_error("请先选中传送区域再打开转场设置");
             auto r = editor.level.portals[transitionPortal].region;
             if (r.x != transitionPortalRegion.x || r.y != transitionPortalRegion.y ||
                 r.w != transitionPortalRegion.w || r.h != transitionPortalRegion.h)
-                throw std::runtime_error("Portal changed; reopen transition settings");
+                throw std::runtime_error("传送区域已变化，请重新打开转场设置");
             editor.begin();
             auto& p = editor.level.portals[transitionPortal];
             p.transition = c;
@@ -171,7 +171,7 @@ void App::transitionCommand(int id) {
         }
         editor.dirty = true;
         refreshChrome();
-        message = "Transition settings applied; save project";
+        message = "转场设置已应用，记得保存工程";
     }
 }
 } // namespace echo

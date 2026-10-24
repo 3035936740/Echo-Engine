@@ -1,6 +1,7 @@
 #include "echo/frame_pacer.hpp"
 #include "echo/app.hpp"
 #include "echo/audio_state.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <iomanip>
@@ -119,6 +120,8 @@ void App::run() {
             if (!resources.published && msg.message == WM_KEYDOWN) {
                 try {
                     if (eventShortcut(UINT(msg.wParam), (GetKeyState(VK_CONTROL) & 0x8000) != 0))
+                        continue;
+                    if (dialogKey(msg))
                         continue;
                 } catch (const std::exception& e) {
                     message = e.what();
@@ -270,7 +273,7 @@ void App::run() {
             try {
                 autosave();
             } catch (const std::exception& e) {
-                message = std::string("Recovery failed: ") + e.what();
+                message = std::string("自动恢复点保存失败：") + e.what();
             }
         }
         auto tickBegin = Clock::now();
@@ -364,18 +367,19 @@ void App::run() {
                                        "玩家出生", "Boss出生", "移动平台", "移动地形",  "灯光",
                                        "圆形碰撞", "三角碰撞", "方形碰撞", "矩形碰撞",  "绘制凸轮廓",
                                        "对话区域", "传送区域", "地图事件", "矩形填充",  "油漆桶",
-                                       "框选",     "吸管",     "对象",     "弹幕发射器"};
+                                       "框选",     "吸管",     "对象",     "弹幕发射器", "平台机关"};
                 const char* layers[] = {"后景", "世界", "前景"};
-                s << "地图 " << editMap + 1 << " · " << mapWidth << " × " << mapHeight << "格"
+                s << pathUtf8(pathFromUtf8(config.maps[editMap]).stem()) << " · " << mapWidth << " × "
+                  << mapHeight << " 格"
                   << "   |   " << layers[editor.layer] << "   |   "
-                  << tools[std::clamp(editor.tool, 0, 23)];
+                  << tools[std::clamp(editor.tool, 0, 24)];
                 if (workspaceMode == 0)
                     s << "   |   图块 " << editor.tileIndex;
                 if (editor.layerLocked[editor.layer])
                     s << "   |   图层已锁定";
                 if (editor.dirty)
                     s << "   |   未保存";
-                if (!message.empty() && message.rfind("Tool ", 0) != 0)
+                if (!message.empty())
                     s << "   |   " << message;
             } else {
                 s << "试玩   |   回溯 " << h.seconds() << "/" << w.rewind.history_seconds << "s"
@@ -390,7 +394,7 @@ void App::run() {
                 else if (!w.rewind.enabled)
                     s << "   |   回溯已关闭";
             }
-            SetWindowTextW(status, wide(s.str()).c_str());
+            setStatusText(wide(s.str()));
         }
         if (smoke && drew && ++smokeFrames >= 8) {
             renderer.capture(smokePath);
@@ -420,7 +424,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
         std::vector<std::wstring> args(argv, argv + argc);
         LocalFree(argv);
         for (std::size_t i = 1; i + 1 < args.size(); ++i)
-            if (args[i] == L"--verify" || args[i] == L"--diagnostics")
+            if (args[i] == L"--verify" || args[i] == L"--diagnostics" || args[i] == L"--ui-tour")
                 diagnostics = args[i + 1];
         if (!app->resources.openEmbedded(app->executable)) {
             auto game = app->executable.parent_path() / "game";
@@ -441,14 +445,15 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
             }
         }
         if (!std::filesystem::exists(app->resources.root / "project.echo") && !app->resources.published)
-            throw std::runtime_error("Missing project.echo: use --project <folder>");
+            throw std::runtime_error("找不到 project.echo：请用 --project <文件夹> 指定工程");
         for (std::size_t i = 1; i + 1 < args.size(); ++i)
             if (args[i] == L"--export-public" || args[i] == L"--export-encrypted") {
                 app->resources.exportGame(app->executable, args[i + 1],
                                           args[i] == L"--export-encrypted");
                 return 0;
             }
-        app->verifyMode = !diagnostics.empty();
+        bool tour = std::find(args.begin(), args.end(), L"--ui-tour") != args.end();
+        app->verifyMode = !diagnostics.empty() && !tour; // the tour needs visible windows
         app->loadProject();
         app->editing = !app->resources.published && app->executable.stem() == L"EchoEngine";
         for (auto& arg : args)
@@ -458,6 +463,9 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
         for (std::size_t i = 1; i + 1 < args.size(); ++i)
             if (args[i] == L"--verify") {
                 app->verify(args[i + 1]);
+                return 0;
+            } else if (args[i] == L"--ui-tour") {
+                runUiTour(*app, args[i + 1]);
                 return 0;
             }
         app->run();

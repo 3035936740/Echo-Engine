@@ -2,6 +2,7 @@
 #include "camera.hpp"
 #include "animations.hpp"
 #include "barrage.hpp"
+#include <array>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -18,6 +19,7 @@ class Renderer {
     float renderSharpness = .25f;
     int environment = 3, weather = 0;
     bool editorDark{};
+    std::array<float, 3> editorBackdrop{.933f, .941f, .957f}; // matches the editor chrome theme
     bool editorGrid = true, editorCollisions = true, debugCollisions = false, selectionVisible = false;
     std::array<bool, 3> editorHidden{};
     Rect selectionRect{};

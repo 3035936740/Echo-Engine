@@ -64,7 +64,7 @@ void App::collisionCommand(int id) {
         config.collisions = initial_->collisions = collisionDraft;
         simulation->reset(*initial_, HistoryClearReason::CollisionSettings);
         editor.dirty = true;
-        message = "Collision pairs applied; play history restarted";
+        message = "碰撞分类已应用，试玩历史已重置";
         refreshChrome();
     }
 }
